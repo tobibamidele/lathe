@@ -1,0 +1,17 @@
+# build output
+/bin/
+*.test
+*.out
+
+# lathe scratch space used while loading schemas
+_lathe/
+
+# local databases
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+.DS_Store
+.idea/
+.vscode/
