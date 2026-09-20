@@ -17,7 +17,7 @@ type Field[M any] struct {
 	Ptr           func(*M) any // pointer to the struct field
 	PrimaryKey    bool
 	AutoIncrement bool // the database assigns the value
-	HasDefault    bool // the database has a default; zero values are left out of INSERT
+	HasDefault    bool // a zero value means "not set": leave it out of INSERT so the database default applies
 }
 
 // TableSpec describes a generated model M.
@@ -356,10 +356,12 @@ func (m *Model[M]) planInsert(row *M) insertPlan {
 // Create inserts row. Columns the database generates (auto increment keys,
 // defaults such as timestamps) are read back into row.
 //
-// A field that has a database default and holds its zero value is left out of
-// the INSERT so the default applies. That also means a nullable column with a
-// default cannot be inserted as an explicit NULL through Create; use an UPDATE
-// afterwards or raw SQL.
+// Columns whose zero value means "not set" are left out of the INSERT so the
+// database fills them in: auto increment keys, columns defaulting to now, a
+// UUID or an expression, enums with a default, and nullable columns with any
+// default (a nil pointer). Zero bools, numbers and strings are always sent,
+// because they are legitimate values; make such a column nullable to get its
+// constant default when the field is nil.
 func (m *Model[M]) Create(ctx context.Context, row *M) error {
 	d := m.db.dialect
 	p := m.planInsert(row)
