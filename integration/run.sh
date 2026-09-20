@@ -23,14 +23,15 @@ case "$D" in
   postgres)
     export DATABASE_URL="${DATABASE_URL_POSTGRES:-postgres://lathe:lathe@127.0.0.1:5432/lathe_test?sslmode=disable}"
     reset_db() {
-      PGPASSWORD=lathe psql -q -h 127.0.0.1 -U lathe -d postgres \
+      PGPASSWORD="${PGPASSWORD:-lathe}" psql -q -h "${PGHOST:-127.0.0.1}" -U "${PGUSER:-lathe}" -d postgres \
         -c "DROP DATABASE IF EXISTS lathe_test" -c "CREATE DATABASE lathe_test"
     }
     ;;
   mysql)
     export DATABASE_URL="${DATABASE_URL_MYSQL:-lathe:lathe@tcp(127.0.0.1:3306)/lathe_test}"
     reset_db() {
-      mysql -ulathe -plathe -h127.0.0.1 -e "DROP DATABASE IF EXISTS lathe_test; CREATE DATABASE lathe_test" 2>/dev/null
+      mysql -u"${MYSQL_ADMIN_USER:-lathe}" -p"${MYSQL_ADMIN_PASSWORD:-lathe}" -h"${MYSQL_HOST:-127.0.0.1}" \
+        -e "DROP DATABASE IF EXISTS lathe_test; CREATE DATABASE lathe_test" 2>/dev/null
     }
     ;;
   *) echo "unknown dialect $D" >&2; exit 2 ;;

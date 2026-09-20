@@ -1,0 +1,54 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go: ["1.22", "stable"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+      - run: make fmt-check vet
+      - run: make test
+
+  e2e:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        dialect: [sqlite, postgres, mysql]
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: lathe
+          POSTGRES_PASSWORD: lathe
+          POSTGRES_DB: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U lathe" --health-interval 5s --health-timeout 5s --health-retries 10
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: lathe
+        ports: ["3306:3306"]
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -plathe" --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      DATABASE_URL_POSTGRES: postgres://lathe:lathe@127.0.0.1:5432/lathe_test?sslmode=disable
+      DATABASE_URL_MYSQL: root:lathe@tcp(127.0.0.1:3306)/lathe_test
+      MYSQL_ADMIN_USER: root
+      MYSQL_ADMIN_PASSWORD: lathe
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - run: ./integration/run.sh ${{ matrix.dialect }}
