@@ -77,7 +77,7 @@ step "re-apply stage 2 and exercise it"
 export LATHE_STAGE=2
 $LATHE migrate up
 $LATHE generate
-gotest -tags stage2 -run 'TestEvolvedSchemaWorks|TestMigrationsAreApplied|TestUpIsIdempotent|TestEditedMigrationIsRejected'
+gotest -tags stage2 -run 'TestRelationsOnMigratedTables|TestEvolvedSchemaWorks|TestMigrationsAreApplied|TestUpIsIdempotent|TestEditedMigrationIsRejected'
 
 step "no drift: the schema matches the last snapshot"
 $LATHE migrate diff drift_check

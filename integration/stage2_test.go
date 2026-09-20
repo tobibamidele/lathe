@@ -45,6 +45,46 @@ func TestDataSurvivedTheMigration(t *testing.T) {
 	}
 }
 
+// Relations are derived from foreign keys, so tables added by a migration get
+// them too, including a nullable belongs-to that is NULL.
+func TestRelationsOnMigratedTables(t *testing.T) {
+	client := db.NewClient(openDB(t))
+	author, err := client.Users.FindFirst().Where(db.Users.Email.Eq("keep@x.io")).One(ctx)
+	must(t, err)
+	post, err := client.Posts.FindFirst().One(ctx)
+	must(t, err)
+	must(t, client.Comments.CreateMany(ctx, []db.Comment{
+		{PostID: post.ID, UserID: &author.ID, Body: "signed"},
+		{PostID: post.ID, Body: "anonymous"}, // user_id stays NULL
+	}))
+
+	loaded, err := client.Posts.FindFirst().Where(db.Posts.ID.Eq(post.ID)).
+		With(db.Posts.Comments.OrderBy(db.Comments.ID.Asc()).With(db.Comments.User), db.Posts.Author).One(ctx)
+	must(t, err)
+	if loaded.Author == nil || loaded.Author.Email != "keep@x.io" {
+		t.Errorf("author: %+v", loaded.Author)
+	}
+	if len(loaded.Comments) != 2 {
+		t.Fatalf("comments: %+v", loaded.Comments)
+	}
+	if loaded.Comments[0].User == nil || loaded.Comments[0].User.ID != author.ID {
+		t.Errorf("signed comment: %+v", loaded.Comments[0].User)
+	}
+	if loaded.Comments[1].User != nil {
+		t.Errorf("a NULL foreign key must give a nil relation, got %+v", loaded.Comments[1].User)
+	}
+
+	// the reverse side, and the renamed table's relations
+	withComments, err := client.Users.Get(ctx, author.ID)
+	must(t, err)
+	must(t, client.Users.Load(ctx, withComments, db.Users.Comments))
+	if len(withComments.Comments) != 1 {
+		t.Errorf("user comments: %+v", withComments.Comments)
+	}
+	_, err = client.Comments.Delete().AllRows().Exec(ctx)
+	must(t, err)
+}
+
 func TestEvolvedSchemaWorks(t *testing.T) {
 	client := db.NewClient(openDB(t))
 	author, err := client.Users.FindFirst().Where(db.Users.Email.Eq("keep@x.io")).One(ctx)

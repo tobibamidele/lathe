@@ -74,6 +74,22 @@ database knows cannot be read back. Generated code fills a zero UUID with
 `uuid.New()`; `Create` returns a clear error for the remaining unreadable case
 (a database-generated non-auto primary key on MySQL).
 
+**Relations are derived, batched and cycle-free.** They come from foreign keys, so
+the schema stays the single source of truth. Each is a `Relation[Source, Target]`
+holding a loader closure; `With` runs them after the main query. A loader
+collects the parents' key values, fetches related rows with one `WHERE key IN
+(...)` (an OR of ANDs for composite keys, in chunks that respect the driver's
+parameter limit), and attaches them by key. Many-to-many goes through the join
+table's own model. Keys are compared as formatted strings so both sides match
+even when their Go types differ. The generated relation values only mention
+table specs and column *names*, never other table variables, which avoids Go
+initialisation cycles between `db.Users` and `db.Posts`.
+
+**Upserts read back.** `RETURNING` gives PostgreSQL and SQLite the final row;
+when `DO NOTHING` skips the insert (nothing is returned) and on MySQL, which has
+no `RETURNING`, the row is reloaded by the conflict columns. The struct therefore
+always reflects the database, at the cost of one extra query in those cases.
+
 ## Renaming
 
 The module path and command name appear in `go.mod`, imports, templates and

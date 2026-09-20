@@ -232,6 +232,29 @@ func main() {
 	check(err)
 	fmt.Println("tag", tagged.Name, "is on", len(tagged.Posts), "post(s)")
 
+	// ───────────────────────────────────────────── upsert
+	section("Upsert: insert, or resolve a conflict")
+	again := db.User{Email: "ann@example.com", Name: "Ann (renamed)", PasswordHash: "ignored"}
+	check(client.Users.Upsert(&again).OnConflict(db.Users.Email).DoUpdate(db.Users.Name).Exec(ctx))
+	fmt.Printf("DoUpdate: same id (%v), name=%q, password_hash still %q (only Name was listed)\n", again.ID == ann.ID, again.Name, again.PasswordHash)
+
+	fresh := db.User{Email: "eve@example.com", Name: "Eve", PasswordHash: "h5", Active: true}
+	check(client.Users.Upsert(&fresh).OnConflict(db.Users.Email).DoUpdate().Exec(ctx))
+	fmt.Println("no conflict -> plain insert: id", fresh.ID, "role", fresh.Role)
+
+	goTag := db.Tag{Name: "go"}
+	check(client.Tags.Upsert(&goTag).OnConflict(db.Tags.Name).DoNothing().Exec(ctx))
+	fmt.Println("DoNothing = get-or-create: tag id", goTag.ID, "(the existing row)")
+
+	for i := 0; i < 3; i++ {
+		visit := db.User{Email: "eve@example.com", Name: "Eve", PasswordHash: "h5"}
+		check(client.Users.Upsert(&visit).OnConflict(db.Users.Email).Set(lathe.Incr(db.Users.Karma, 1)).Exec(ctx))
+	}
+	eve, _ := client.Users.Get(ctx, fresh.ID)
+	fmt.Println("Set(Incr) on conflict, three times -> karma:", eve.Karma)
+	sqlText, _, _ = client.Users.Upsert(&again).OnConflict(db.Users.Email).DoUpdate(db.Users.Name).Build()
+	fmt.Println("Build():", sqlText)
+
 	// ───────────────────────────────────────────── select builder
 	section("Select: joins, aggregates, HAVING, subqueries, scanning into structs")
 	type authorStats struct {

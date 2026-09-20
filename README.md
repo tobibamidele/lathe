@@ -132,7 +132,8 @@ become pointers in the generated struct (`Bio *string`).
 
 `PrimaryKey()`, `Nullable()`, `AutoIncrement()`, `Unique()`, `Index()`,
 `Default(v)`, `DefaultNow()`, `DefaultUUID()`, `DefaultExpr(sql)`,
-`References(table, column)` with `OnDelete(...)` / `OnUpdate(...)`, `Field(name)`
+`References(table, column)` with `OnDelete(...)` / `OnUpdate(...)` and
+`Relation(forward, reverse)` (see [Relations](#relations)), `Field(name)`
 (override the Go field name) and `RenamedFrom(old)` (see
 [renames](#renames)).
 
@@ -206,6 +207,87 @@ client.Users.Delete().Where(db.Users.ID.Eq(id)).Exec(ctx)
 
 `Update` and `Delete` without a `Where` return `lathe.ErrMissingWhere`; add
 `.AllRows()` when you really mean every row.
+
+### Relations
+
+Relations come from your foreign keys; there is nothing else to declare.
+
+| Foreign key | Generated |
+|---|---|
+| `posts.author_id -> users.id` | `Post.Author *User` (belongs-to) and `User.Posts []Post` (has-many) |
+| the same, but the key is unique or the primary key (`profiles.user_id`) | `Profile.User *User` and `User.Profile *Profile` (has-one) |
+| a join table: two foreign keys to two tables that together are its primary key (`post_tags`) | `Post.Tags []Tag` and `Tag.Posts []Post` (many-to-many), next to `Post.PostTags` |
+| several keys to one table (`messages.sender_id`, `.recipient_id`) | `Message.Sender`, `Message.Recipient`, `User.MessagesBySender`, `User.MessagesByRecipient` |
+
+Composite foreign keys work. Names come from the column (`author_id` becomes
+`Author`); override them with `.Relation("Writer", "Articles")` on the
+reference, use `""` to keep a derived name and `"-"` to skip that side.
+Generation stops with an explanation if two names collide.
+
+Relation fields on the structs are `nil` until loaded, and `With` loads them in
+batches: one extra query per relation (two for many-to-many), however many rows
+came back, so there is no N+1.
+
+```go
+users, err := client.Users.FindMany().
+    Where(db.Users.Active.Eq(true)).
+    With(
+        db.Users.Profile,
+        db.Users.Posts.
+            Where(db.Posts.Status.Eq(db.PostStatusPublished)).   // filter the related rows
+            OrderBy(db.Posts.Views.Desc()).                      // order each parent's list
+            Exclude(db.Posts.Cover).                             // leave columns out
+            With(                                                // nested, to any depth
+                db.Posts.Tags.OrderBy(db.Tags.Name.Asc()),
+                db.Posts.Comments.With(db.Comments.User),
+            ),
+    ).
+    All(ctx)
+
+for _, u := range users {
+    for _, p := range u.Posts { fmt.Println(u.Name, p.Title, len(p.Tags), p.Comments[0].User.Name) }
+}
+```
+
+- Has-many and many-to-many fields of a row without related rows are empty,
+  non-nil slices (`loaded, none found`); a belongs-to or has-one with a `NULL` or
+  dangling key stays `nil`.
+- `db.Users.Posts.Where(...)` returns a modified copy; the original is never
+  changed.
+- `With` works on `FindFirst().One`, `FindMany().All`, and on rows you already
+  hold: `client.Users.Load(ctx, &u, db.Users.Posts)` and
+  `client.Users.LoadMany(ctx, users, db.Users.Posts)`.
+- The query must select the columns a relation reads (`Select` that leaves out
+  `author_id` while asking for `With(db.Posts.Author)` is an error), and
+  `Exclude` cannot remove the column that links related rows to their parents.
+- The structs also serialise: relation fields are `json:"author,omitempty"`.
+
+### Upserts
+
+```go
+// insert, or update the existing row with the same email
+err := client.Users.Upsert(&u).
+    OnConflict(db.Users.Email).
+    DoUpdate(db.Users.Name, db.Users.Bio).      // overwrite only these columns
+    Exec(ctx)
+
+.DoUpdate()                                     // no arguments: every inserted column except keys
+.Set(lathe.Incr(db.Counters.Hits, 1))           // arbitrary expressions on conflict
+.DoNothing()                                    // keep the existing row: get-or-create
+```
+
+It renders `INSERT ... ON CONFLICT (email) DO UPDATE SET ... = EXCLUDED....` on
+PostgreSQL and SQLite and `INSERT ... ON DUPLICATE KEY UPDATE ... = VALUES(...)`
+on MySQL, where the conflict columns are only used to read the row back
+(`ON DUPLICATE KEY` applies to whichever unique key collides).
+
+After `Exec` the struct **reflects the database**: the inserted row (with its
+id and defaults), the updated row, or, for `DoNothing`, the row that was already
+there. That makes `Upsert(&tag).OnConflict(db.Tags.Name).DoNothing()` a
+get-or-create in one call. Columns you list in `DoUpdate` must be part of the
+`INSERT` (a zero-valued column with a database default is left out, see
+[defaults](#defaults-precisely)), and misuse (no action, both actions, a
+missing conflict target on PostgreSQL/SQLite) is reported before any SQL runs.
 
 ### Conditions
 
@@ -396,13 +478,15 @@ struct with a built-in currency on purpose.
 
 ## Limitations
 
-Deliberately not in v0.1:
+Deliberately not there yet:
 
-- **Relations.** Foreign keys are created and enforced, and you join
-  explicitly with `Select`, but there is no `With(Posts)` eager loading or
-  generated relation accessors yet.
-- **Upserts** (`ON CONFLICT` / `ON DUPLICATE KEY`); use `lathe.SQL` or raw
-  SQL for now.
+- **Nested writes** (creating a post together with its tags in one call). Loading
+  is covered by [relations](#relations), writing goes through the per-table
+  clients inside a transaction.
+- **A per-parent limit on preloaded rows** (`Comments.Limit(3)` for each post);
+  it needs window functions and differs per database.
+- **Bulk upserts** and a `Where` on `DO UPDATE`. Single-row upserts, `DoNothing`
+  and expression updates are supported.
 - Table aliases, so self-joins need raw SQL.
 - Rename detection is hint based (`RenamedFrom`), never guessed.
 - Migration snapshots are a single JSON file: two branches that both run
@@ -429,7 +513,8 @@ drop and create tables), checks the data survived, reverts the migration,
 checks the old shape and data, applies it again and finally checks that the
 schema has no drift. CI runs it for all three databases.
 
-See [docs/design.md](docs/design.md) for how the pieces fit together.
+`examples/showcase` is a runnable tour of the whole API against PostgreSQL. See
+[docs/design.md](docs/design.md) for how the pieces fit together.
 
 ## License
 

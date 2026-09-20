@@ -59,6 +59,26 @@ func tables() []*s.TableBuilder {
 		s.PrimaryKey("post_id", "tag_id"),
 	)
 
+	profiles := s.Table("profiles", // one-to-one: the foreign key is the primary key
+		s.BigInt("user_id").PrimaryKey().References("users", "id").OnDelete(s.Cascade),
+		s.VarChar("website", 200).Nullable(),
+	)
+	messages := s.Table("messages", // two foreign keys to the same table
+		s.BigInt("id").PrimaryKey().AutoIncrement(),
+		s.BigInt("sender_id").References("users", "id").OnDelete(s.Cascade),
+		s.BigInt("recipient_id").References("users", "id").OnDelete(s.Cascade),
+		s.Text("body"),
+	)
+	orgs := s.Table("orgs", // composite primary key ...
+		s.Int("tenant").PrimaryKey(), s.Int("id").PrimaryKey(), s.VarChar("name", 50),
+	)
+	members := s.Table("members", // ... referenced by a composite foreign key
+		s.Int("id").PrimaryKey().AutoIncrement(),
+		s.Int("org_tenant"), s.Int("org_id"), s.VarChar("name", 50),
+		s.ForeignKey("org_tenant", "org_id").References("orgs", "tenant", "id"),
+	)
+	common := []*s.TableBuilder{profiles, messages, orgs, members}
+
 	if !stage2 {
 		users.Add(
 			s.VarChar("name", 120),
@@ -66,7 +86,7 @@ func tables() []*s.TableBuilder {
 			s.Money("balance").Default("0"),
 		)
 		posts.Add(s.Int("views").Default(0))
-		return []*s.TableBuilder{users, posts, tags, postTags}
+		return append([]*s.TableBuilder{users, posts, tags, postTags}, common...)
 	}
 
 	// Stage 2: add a column, rename + widen a column, add an enum value,
@@ -94,5 +114,5 @@ func tables() []*s.TableBuilder {
 		s.Int("id").PrimaryKey().AutoIncrement(),
 		s.VarChar("name", 50).Unique(),
 	).RenamedFrom("tags")
-	return []*s.TableBuilder{users, posts, comments, labels}
+	return append([]*s.TableBuilder{users, posts, comments, labels}, common...)
 }
