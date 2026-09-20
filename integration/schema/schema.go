@@ -106,7 +106,7 @@ func tables() []*s.TableBuilder {
 	comments := s.Table("comments",
 		s.BigInt("id").PrimaryKey().AutoIncrement(),
 		s.UUID("post_id").References("posts", "id").OnDelete(s.Cascade),
-		s.BigInt("user_id").References("users", "id").OnDelete(s.Cascade),
+		s.BigInt("user_id").Nullable().References("users", "id").OnDelete(s.Cascade), // nullable: anonymous comments
 		s.Text("body"),
 		s.Timestamp("created_at").DefaultNow(),
 	)

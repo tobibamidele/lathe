@@ -104,12 +104,13 @@ func TestEvolvedSchemaWorks(t *testing.T) {
 	// the new table and its foreign keys
 	post, err := client.Posts.FindFirst().One(ctx)
 	must(t, err)
-	c := db.Comment{PostID: post.ID, UserID: author.ID, Body: "nice"}
+	c := db.Comment{PostID: post.ID, UserID: &author.ID, Body: "nice"}
 	must(t, client.Comments.Create(ctx, &c))
 	if c.ID == 0 || c.CreatedAt.IsZero() {
 		t.Errorf("comment defaults: %+v", c)
 	}
-	orphan := db.Comment{PostID: post.ID, UserID: 987654, Body: "x"}
+	ghost := int64(987654)
+	orphan := db.Comment{PostID: post.ID, UserID: &ghost, Body: "x"}
 	if err := client.Comments.Create(ctx, &orphan); !errors.Is(err, lathe.ErrForeignKeyViolation) {
 		t.Errorf("comment fk: %v", err)
 	}
