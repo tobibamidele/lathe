@@ -173,7 +173,7 @@ func Scan[T any](ctx context.Context, db *DB, q *SelectQuery) ([]T, error) {
 	if err != nil {
 		return nil, err
 	}
-	return scanAll[T](rows)
+	return scanAll[T](rows, db.wrap)
 }
 
 // ScanOne is like [Scan] but returns the first row, or [ErrNotFound].
@@ -200,7 +200,7 @@ func Raw[T any](ctx context.Context, db *DB, query string, args ...any) ([]T, er
 	if err != nil {
 		return nil, err
 	}
-	return scanAll[T](rows)
+	return scanAll[T](rows, db.wrap)
 }
 
 // RawOne is like [Raw] but returns the first row, or [ErrNotFound].

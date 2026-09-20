@@ -101,7 +101,7 @@ func (c *TableChange) Warnings() []string {
 		w = append(w, fmt.Sprintf("drops column %s.%s and its data", c.New.Name, col.Name))
 	}
 	for _, a := range c.AlterColumns {
-		if !a.Old.Type.Equal(a.New.Type) {
+		if !a.Old.Type.Equal(a.New.Type) && !widens(a.Old.Type, a.New.Type) {
 			w = append(w, fmt.Sprintf("changes the type of %s.%s; existing values are converted and may fail or lose precision", c.New.Name, a.New.Name))
 		} else if a.Old.Nullable && !a.New.Nullable {
 			w = append(w, fmt.Sprintf("makes %s.%s NOT NULL; the migration fails if NULLs exist", c.New.Name, a.New.Name))
@@ -186,3 +186,37 @@ func (s DropForeignKey) Describe() string {
 	return fmt.Sprintf("drop foreign key %s on %s", s.FK.Name, s.Table)
 }
 func (s DropForeignKey) Warnings() []string { return nil }
+
+// widens reports whether every value of type from is representable in type
+// to, so converting existing data cannot fail or lose information.
+func widens(from, to schema.Type) bool {
+	switch {
+	case from.Kind == to.Kind:
+		switch from.Kind {
+		case schema.KindVarChar:
+			return to.Length >= from.Length
+		case schema.KindDecimal:
+			return to.Scale >= from.Scale && to.Precision-to.Scale >= from.Precision-from.Scale
+		case schema.KindEnum:
+			have := map[string]bool{}
+			for _, v := range to.Values {
+				have[v] = true
+			}
+			for _, v := range from.Values {
+				if !have[v] {
+					return false
+				}
+			}
+			return true
+		}
+		return true
+	case from.Kind.IsInteger() && to.Kind.IsInteger():
+		rank := map[schema.Kind]int{schema.KindSmallInt: 1, schema.KindInt: 2, schema.KindBigInt: 3}
+		return rank[to.Kind] >= rank[from.Kind]
+	case from.Kind == schema.KindReal && to.Kind == schema.KindDouble:
+		return true
+	case from.Kind == schema.KindVarChar && to.Kind == schema.KindText:
+		return true
+	}
+	return false
+}

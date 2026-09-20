@@ -6,7 +6,7 @@
 // conditions:
 //
 //	client := {{.Package}}.NewClient(conn)
-//	rows, err := client.{{.First}}.FindMany().Where({{.Package}}.{{.First}}.<Column>.Eq(...)).All(ctx)
+//	rows, err := client.{{.First}}.FindMany().Where({{.Package}}.{{.First}}.{{.FirstCol}}.Eq(...)).All(ctx)
 package {{.Package}}
 
 import (

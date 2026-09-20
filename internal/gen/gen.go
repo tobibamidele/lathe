@@ -61,10 +61,11 @@ func Generate(exp *schema.Export) ([]File, error) {
 	}
 	if len(tables) > 0 {
 		err = render("client.gen.go", "client.go.tmpl", struct {
-			Package string
-			First   string
-			Tables  []*tableView
-		}{exp.Config.Package, tables[0].Vars, tables})
+			Package  string
+			First    string
+			FirstCol string
+			Tables   []*tableView
+		}{exp.Config.Package, tables[0].Vars, tables[0].Fields[0].Name, tables})
 		if err != nil {
 			return nil, err
 		}
@@ -95,6 +96,7 @@ type fieldView struct {
 	PrimaryKey    bool
 	AutoIncrement bool
 	OmitZero      bool
+	Init          string // Go func literal that fills a zero value client-side
 }
 
 type tableView struct {
@@ -181,6 +183,7 @@ func buildViews(exp *schema.Export) ([]*tableView, error) {
 				GoType: goT, BaseType: base,
 				PrimaryKey: t.IsPrimaryKey(c.Name), AutoIncrement: c.AutoIncrement,
 				OmitZero: omitZero(c),
+				Init:     clientDefault(c, model, name),
 			}
 			v.Fields = append(v.Fields, f)
 			if f.PrimaryKey {
@@ -212,13 +215,29 @@ func buildViews(exp *schema.Export) ([]*tableView, error) {
 		sort.SliceStable(v.PrimaryKey, func(i, j int) bool {
 			return indexOf(t.PrimaryKey, v.PrimaryKey[i].Column) < indexOf(t.PrimaryKey, v.PrimaryKey[j].Column)
 		})
-		for imp := range imports {
-			v.Imports = append(v.Imports, imp)
-		}
-		sort.Strings(v.Imports)
+		v.Imports = groupImports(imports)
 		views = append(views, v)
 	}
 	return views, nil
+}
+
+// groupImports sorts imports into the conventional two blocks: the standard
+// library, then everything else.
+func groupImports(set map[string]bool) []string {
+	var std, other []string
+	for imp := range set {
+		if strings.Contains(imp, ".") {
+			other = append(other, imp)
+		} else {
+			std = append(std, imp)
+		}
+	}
+	sort.Strings(std)
+	sort.Strings(other)
+	if len(std) > 0 && len(other) > 0 {
+		std = append(std, "")
+	}
+	return append(std, other...)
 }
 
 func indexOf(list []string, s string) int {
@@ -280,6 +299,20 @@ func omitZero(c *schema.ColumnDef) bool {
 		return true
 	}
 	return c.Type.Kind == schema.KindEnum
+}
+
+// clientDefault returns a func literal that fills a zero UUID with a random
+// one in Go. UUID defaults are generated client-side because MySQL cannot
+// return a database generated key after INSERT; the column keeps its database
+// default for rows inserted by other means.
+func clientDefault(c *schema.ColumnDef, model, field string) string {
+	if c.Default == nil || c.Default.Kind != schema.DefaultUUID || c.Type.Kind != schema.KindUUID {
+		return ""
+	}
+	if c.Nullable {
+		return fmt.Sprintf("func(m *%s) { if m.%s == nil { v := uuid.New(); m.%s = &v } }", model, field, field)
+	}
+	return fmt.Sprintf("func(m *%s) { if m.%s == uuid.Nil { m.%s = uuid.New() } }", model, field, field)
 }
 
 func lowerFirst(s string) string {

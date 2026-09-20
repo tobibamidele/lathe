@@ -341,3 +341,24 @@ func TestMySQLStringEscaping(t *testing.T) {
 	p, d := diff(t, nil, cur)
 	mustContain(t, up(t, p, d), `DEFAULT 'it''s a \\ test'`)
 }
+
+func TestWideningIsNotAWarning(t *testing.T) {
+	old := snap(t, s.Postgres, s.Table("t",
+		s.Int("id").PrimaryKey(),
+		s.VarChar("a", 10), s.Int("n"), s.Money("m"), s.Enum("e", "x"), s.Text("z"),
+	))
+	safe := snap(t, s.Postgres, s.Table("t",
+		s.Int("id").PrimaryKey(),
+		s.VarChar("a", 50), s.BigInt("n"), s.Decimal("m", 24, 4), s.Enum("e", "x", "y"), s.Text("z"),
+	))
+	if p, _ := diff(t, old, safe); len(p.Warnings()) != 0 {
+		t.Errorf("widening must not warn: %v", p.Warnings())
+	}
+	risky := snap(t, s.Postgres, s.Table("t",
+		s.Int("id").PrimaryKey(),
+		s.VarChar("a", 5), s.SmallInt("n"), s.Decimal("m", 10, 2), s.Enum("e", "y"), s.VarChar("z", 20),
+	))
+	if p, _ := diff(t, old, risky); len(p.Warnings()) != 5 {
+		t.Errorf("want 5 warnings for narrowing changes, got %v", p.Warnings())
+	}
+}

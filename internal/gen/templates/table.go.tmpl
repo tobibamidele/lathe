@@ -62,7 +62,7 @@ var {{.Spec}} = &lathe.TableSpec[{{.Model}}]{
 	Table: {{printf "%q" .Name}},
 	Fields: []lathe.Field[{{.Model}}]{
 {{- range .Fields}}
-		{Column: {{printf "%q" .Column}}, Ptr: func(m *{{$.Model}}) any { return &m.{{.Name}} }{{if .PrimaryKey}}, PrimaryKey: true{{end}}{{if .AutoIncrement}}, AutoIncrement: true{{end}}{{if .OmitZero}}, HasDefault: true{{end}}},
+		{Column: {{printf "%q" .Column}}, Ptr: func(m *{{$.Model}}) any { return &m.{{.Name}} }{{if .PrimaryKey}}, PrimaryKey: true{{end}}{{if .AutoIncrement}}, AutoIncrement: true{{end}}{{if .OmitZero}}, HasDefault: true{{end}}{{if .Init}}, Default: {{.Init}}{{end}}},
 {{- end}}
 	},
 }

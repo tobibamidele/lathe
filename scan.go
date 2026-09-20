@@ -16,7 +16,7 @@ var (
 )
 
 // scanAll reads every row into a T and closes rows.
-func scanAll[T any](rows *sql.Rows) ([]T, error) {
+func scanAll[T any](rows *sql.Rows, wrap func(error) error) ([]T, error) {
 	defer rows.Close()
 	var zero T
 	t := reflect.TypeOf(&zero).Elem()
@@ -33,11 +33,11 @@ func scanAll[T any](rows *sql.Rows) ([]T, error) {
 		for rows.Next() {
 			var item T
 			if err := rows.Scan(&item); err != nil {
-				return nil, err
+				return nil, wrap(err)
 			}
 			out = append(out, item)
 		}
-		return out, rows.Err()
+		return out, wrap(rows.Err())
 	}
 
 	fields := structFields(t)
@@ -57,11 +57,11 @@ func scanAll[T any](rows *sql.Rows) ([]T, error) {
 			dests[i] = v.FieldByIndex(p).Addr().Interface()
 		}
 		if err := rows.Scan(dests...); err != nil {
-			return nil, err
+			return nil, wrap(err)
 		}
 		out = append(out, item)
 	}
-	return out, rows.Err()
+	return out, wrap(rows.Err())
 }
 
 func isStructTarget(t reflect.Type) bool {

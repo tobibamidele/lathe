@@ -79,6 +79,19 @@ func Table(name string, items ...Item) *TableBuilder {
 	return t
 }
 
+// Add appends more items to the table. It is handy when parts of a table are
+// conditional.
+func (t *TableBuilder) Add(items ...Item) *TableBuilder {
+	for _, it := range items {
+		if it == nil {
+			t.errs = append(t.errs, errors.New("nil item"))
+			continue
+		}
+		it.applyTo(t)
+	}
+	return t
+}
+
 // Model overrides the generated Go struct name for the table.
 func (t *TableBuilder) Model(name string) *TableBuilder { t.model = name; return t }
 
