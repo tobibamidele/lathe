@@ -90,6 +90,17 @@ when `DO NOTHING` skips the insert (nothing is returned) and on MySQL, which has
 no `RETURNING`, the row is reloaded by the conflict columns. The struct therefore
 always reflects the database, at the cost of one extra query in those cases.
 
+**One code path for one row or many.** `Upsert(row)` is `UpsertMany` with a single
+row. Rows are grouped by the columns they actually insert (a zero-valued column
+with a database default is left out, so rows can differ), each group is cut into
+statements that fit the driver's parameter limit (Set-expression parameters
+count against it in every statement), and the run is one transaction. The
+results are reconciled into the caller's structs by conflict key: `RETURNING`
+rows first, then one batched SELECT for rows a `DO NOTHING` skipped or MySQL
+did not return, then a row-by-row `=` lookup for anything Go and the database
+disagree about (collations). Duplicate keys inside one call are rejected before
+any SQL runs.
+
 ## Renaming
 
 The module path and command name appear in `go.mod`, imports, templates and

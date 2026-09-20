@@ -3,6 +3,7 @@ package lathe_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -393,5 +394,81 @@ func TestUpsertMisuse(t *testing.T) {
 				t.Fatalf("want error containing %q, got %v", c.want, err)
 			}
 		})
+	}
+}
+
+func TestUpsertManyBuildsMultiRowStatements(t *testing.T) {
+	rows := []User{
+		{Email: "a@x.io", Age: 1, Password: "p1"},
+		{Email: "b@x.io", Age: 2, Password: "p2"},
+	}
+	sql, args, err := model(true).UpsertMany(rows).OnConflict(Users.Email).DoUpdate().Build()
+	check(t, sql, args, err,
+		`INSERT INTO "users" ("email", "age", "bio", "password") VALUES ($1, $2, $3, $4), ($5, $6, $7, $8) ON CONFLICT ("email") DO UPDATE SET "age" = EXCLUDED."age", "bio" = EXCLUDED."bio", "password" = EXCLUDED."password"`,
+		"a@x.io", int32(1), (*string)(nil), "p1", "b@x.io", int32(2), (*string)(nil), "p2")
+
+	sql, _, err = model(false).UpsertMany(rows).OnConflict(Users.Email).DoNothing().Build()
+	if err != nil || !strings.HasSuffix(sql, "VALUES (?, ?, ?, ?), (?, ?, ?, ?) ON DUPLICATE KEY UPDATE `id` = `id`") {
+		t.Errorf("mysql multi-row: %v\n%s", err, sql)
+	}
+}
+
+func TestUpsertManyChunksToTheParameterLimit(t *testing.T) {
+	// the test dialect allows 100 parameters and each row inserts 4 columns
+	rows := make([]User, 40)
+	for i := range rows {
+		rows[i] = User{Email: fmt.Sprintf("u%d@x.io", i), Password: "p"}
+	}
+	sql, args, err := model(false).UpsertMany(rows).OnConflict(Users.Email).DoUpdate(Users.Password).Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(args) != 100 || strings.Count(sql, "(?, ?, ?, ?)") != 25 {
+		t.Errorf("want a first statement with 25 rows / 100 parameters, got %d parameters:\n%s", len(args), sql)
+	}
+
+	// parameters of Set expressions count against the limit in every statement
+	_, args, err = model(false).UpsertMany(rows).OnConflict(Users.Email).Set(lathe.Incr(Users.Age, 1)).Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(args) != 24*4+1 {
+		t.Errorf("want 24 rows + 1 Set parameter, got %d arguments", len(args))
+	}
+}
+
+func TestUpsertManyGroupsRowsByInsertedColumns(t *testing.T) {
+	// the second row has Created set, so it inserts a different column list
+	created := time.Now()
+	rows := []User{
+		{Email: "a@x.io", Password: "p"},
+		{Email: "b@x.io", Password: "p", Created: created},
+		{Email: "c@x.io", Password: "p"},
+	}
+	sql, args, err := model(true).UpsertMany(rows).OnConflict(Users.Email).DoNothing().Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// rows 0 and 2 share a statement; row 1 gets its own
+	if strings.Count(sql, "($") != 2 || len(args) != 8 || strings.Contains(sql, `"created"`) {
+		t.Errorf("first group should hold rows 0 and 2 without created:\n%s %v", sql, args)
+	}
+}
+
+func TestUpsertManyRejectsDuplicateKeysAndBadInput(t *testing.T) {
+	rows := []User{{Email: "same@x.io", Password: "a"}, {Email: "other@x.io", Password: "b"}, {Email: "same@x.io", Password: "c"}}
+	err := model(true).UpsertMany(rows).OnConflict(Users.Email).DoUpdate().Exec(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "rows 0 and 2 have the same conflict key") {
+		t.Errorf("duplicate keys: %v", err)
+	}
+	// nothing to do is not an error and never touches the database
+	if err := model(true).UpsertMany(nil).OnConflict(Users.Email).DoNothing().Exec(context.Background()); err != nil {
+		t.Errorf("empty upsert: %v", err)
+	}
+	// a column that one of the rows leaves out cannot be updated from it
+	mixed := []User{{Email: "a@x.io", Password: "p", Created: time.Now()}, {Email: "b@x.io", Password: "p"}}
+	err = model(true).UpsertMany(mixed).OnConflict(Users.Email).DoUpdate(Users.Created).Exec(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "not part of the INSERT") {
+		t.Errorf("column missing from one group: %v", err)
 	}
 }

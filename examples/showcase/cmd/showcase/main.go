@@ -252,6 +252,14 @@ func main() {
 	}
 	eve, _ := client.Users.Get(ctx, fresh.ID)
 	fmt.Println("Set(Incr) on conflict, three times -> karma:", eve.Karma)
+	batch := []db.User{
+		{Email: "ann@example.com", Name: "Ann (bulk)", PasswordHash: "x", Active: true},                    // exists
+		{Email: "fay@example.com", Name: "Fay", PasswordHash: "h6", Active: true},                          // new
+		{Email: "gus@example.com", Name: "Gus", PasswordHash: "h7", Role: db.UserRoleEditor, Active: true}, // new, explicit role
+	}
+	check(client.Users.UpsertMany(batch).OnConflict(db.Users.Email).DoUpdate(db.Users.Name).Exec(ctx))
+	fmt.Printf("UpsertMany: ann kept id %v, fay=%d (role %s), gus=%d (role %s), one transaction\n",
+		batch[0].ID == ann.ID, batch[1].ID, batch[1].Role, batch[2].ID, batch[2].Role)
 	sqlText, _, _ = client.Users.Upsert(&again).OnConflict(db.Users.Email).DoUpdate(db.Users.Name).Build()
 	fmt.Println("Build():", sqlText)
 

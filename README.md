@@ -274,6 +274,9 @@ err := client.Users.Upsert(&u).
 .DoUpdate()                                     // no arguments: every inserted column except keys
 .Set(lathe.Incr(db.Counters.Hits, 1))           // arbitrary expressions on conflict
 .DoNothing()                                    // keep the existing row: get-or-create
+
+// many rows at once
+err = client.Users.UpsertMany(users).OnConflict(db.Users.Email).DoUpdate(db.Users.Name).Exec(ctx)
 ```
 
 It renders `INSERT ... ON CONFLICT (email) DO UPDATE SET ... = EXCLUDED....` on
@@ -281,10 +284,22 @@ PostgreSQL and SQLite and `INSERT ... ON DUPLICATE KEY UPDATE ... = VALUES(...)`
 on MySQL, where the conflict columns are only used to read the row back
 (`ON DUPLICATE KEY` applies to whichever unique key collides).
 
+`UpsertMany` sends multi-row statements sized to the driver's parameter limit,
+groups rows that insert different column sets (some with an explicit `Role`,
+some relying on the default), and runs everything in one transaction, so it is
+all or nothing. Locally, 5,000 mixed inserts and updates took 150 ms on
+PostgreSQL, 220 ms on MySQL and 65 ms on SQLite, against 2.2 s, 3.8 s and 0.4 s
+for a loop of single upserts. Two rows with the same conflict key in one call are
+rejected up front (PostgreSQL refuses them, and elsewhere the outcome would
+depend on row order).
+
 After `Exec` the struct **reflects the database**: the inserted row (with its
 id and defaults), the updated row, or, for `DoNothing`, the row that was already
 there. That makes `Upsert(&tag).OnConflict(db.Tags.Name).DoNothing()` a
-get-or-create in one call. Columns you list in `DoUpdate` must be part of the
+get-or-create in one call. Rows are matched to the database by their
+`OnConflict` columns (not by position, which `DoNothing` would break), and where
+the database compares keys differently than Go does, such as MySQL's
+case-insensitive collations, the database decides which row is meant. Columns you list in `DoUpdate` must be part of the
 `INSERT` (a zero-valued column with a database default is left out, see
 [defaults](#defaults-precisely)), and misuse (no action, both actions, a
 missing conflict target on PostgreSQL/SQLite) is reported before any SQL runs.
@@ -485,8 +500,8 @@ Deliberately not there yet:
   clients inside a transaction.
 - **A per-parent limit on preloaded rows** (`Comments.Limit(3)` for each post);
   it needs window functions and differs per database.
-- **Bulk upserts** and a `Where` on `DO UPDATE`. Single-row upserts, `DoNothing`
-  and expression updates are supported.
+- A `Where` on `DO UPDATE` ("update only if the incoming row is newer"). Plain,
+  bulk and expression upserts are supported.
 - Table aliases, so self-joins need raw SQL.
 - Rename detection is hint based (`RenamedFrom`), never guessed.
 - Migration snapshots are a single JSON file: two branches that both run
