@@ -418,14 +418,14 @@ func (tb *TableBuilder) build() (*TableDef, error) {
 	for _, cb := range tb.cols {
 		name := cb.col.Name
 		if cb.unique {
-			t.Indexes = append(t.Indexes, &IndexDef{Name: autoName("uq", tb.name, name), Columns: []string{name}, Unique: true})
+			t.Indexes = append(t.Indexes, &IndexDef{Name: AutoName("uq", tb.name, name), Columns: []string{name}, Unique: true})
 		}
 		if cb.index {
-			t.Indexes = append(t.Indexes, &IndexDef{Name: autoName("idx", tb.name, name), Columns: []string{name}})
+			t.Indexes = append(t.Indexes, &IndexDef{Name: AutoName("idx", tb.name, name), Columns: []string{name}})
 		}
 		if cb.ref != nil {
 			fk := cb.ref.fk
-			fk.Name = autoName("fk", tb.name, name)
+			fk.Name = AutoName("fk", tb.name, name)
 			t.ForeignKeys = append(t.ForeignKeys, &fk)
 		}
 	}
@@ -436,7 +436,7 @@ func (tb *TableBuilder) build() (*TableDef, error) {
 			if ix.Unique {
 				prefix = "uq"
 			}
-			ix.Name = autoName(prefix, tb.name, ix.Columns...)
+			ix.Name = AutoName(prefix, tb.name, ix.Columns...)
 		}
 		t.Indexes = append(t.Indexes, &ix)
 	}
@@ -447,7 +447,7 @@ func (tb *TableBuilder) build() (*TableDef, error) {
 			continue
 		}
 		if fk.Name == "" {
-			fk.Name = autoName("fk", tb.name, fk.Columns...)
+			fk.Name = AutoName("fk", tb.name, fk.Columns...)
 		}
 		t.ForeignKeys = append(t.ForeignKeys, &fk)
 	}
@@ -461,9 +461,9 @@ func (tb *TableBuilder) build() (*TableDef, error) {
 // (PostgreSQL: 63 bytes, MySQL: 64).
 const maxIdent = 63
 
-// autoName builds a deterministic constraint or index name that fits every
+// AutoName builds a deterministic constraint or index name that fits every
 // supported database.
-func autoName(prefix, table string, cols ...string) string {
+func AutoName(prefix, table string, cols ...string) string {
 	full := prefix + "_" + table + "_" + strings.Join(cols, "_")
 	if len(full) <= maxIdent {
 		return full
