@@ -17,6 +17,12 @@ type Comment struct {
 	UserID    *int64    `db:"user_id" json:"user_id"`
 	Body      string    `db:"body" json:"body"`
 	CreatedAt time.Time `db:"created_at" json:"created_at"`
+
+	// Post is the Post this row belongs to. It is nil until loaded with With(db.Comments.Post) or Load.
+	Post *Post `db:"-" json:"post,omitempty"`
+
+	// User is the User this row belongs to. It is nil until loaded with With(db.Comments.User) or Load.
+	User *User `db:"-" json:"user,omitempty"`
 }
 
 // CommentColumns holds a typed reference to every column of the "comments" table.
@@ -26,6 +32,12 @@ type CommentColumns struct {
 	UserID    lathe.Column[int64]
 	Body      lathe.Column[string]
 	CreatedAt lathe.Column[time.Time]
+
+	// Post is a relation to Post, for With, Load and LoadMany.
+	Post lathe.Relation[Comment, Post]
+
+	// User is a relation to User, for With, Load and LoadMany.
+	User lathe.Relation[Comment, User]
 }
 
 // TableName returns "comments". It makes Comments usable in joins.
@@ -40,6 +52,16 @@ var Comments = CommentColumns{
 	UserID:    lathe.NewColumn[int64]("comments", "user_id"),
 	Body:      lathe.NewColumn[string]("comments", "body"),
 	CreatedAt: lathe.NewColumn[time.Time]("comments", "created_at"),
+	Post: lathe.BelongsTo("Post", lathe.BelongsToSpec[Comment, Post]{
+		Source: commentSpec, Target: postSpec,
+		SourceCols: []string{"post_id"}, TargetCols: []string{"id"},
+		Set: func(m *Comment, v *Post) { m.Post = v },
+	}),
+	User: lathe.BelongsTo("User", lathe.BelongsToSpec[Comment, User]{
+		Source: commentSpec, Target: userSpec,
+		SourceCols: []string{"user_id"}, TargetCols: []string{"id"},
+		Set: func(m *Comment, v *User) { m.User = v },
+	}),
 }
 
 var commentSpec = &lathe.TableSpec[Comment]{

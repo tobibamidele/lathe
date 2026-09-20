@@ -177,3 +177,129 @@ func TestTableNamedLikeAClientMethodGetsASuffix(t *testing.T) {
 		t.Errorf("expected a suffixed Client field:\n%s", files["client.gen.go"])
 	}
 }
+
+func relationSrc(t *testing.T, tables ...*s.TableBuilder) map[string]string {
+	t.Helper()
+	return generate(t, export(t, tables...))
+}
+
+func TestRelationsFromForeignKeys(t *testing.T) {
+	files := relationSrc(t,
+		s.Table("users", s.BigInt("id").PrimaryKey().AutoIncrement()),
+		s.Table("posts",
+			s.BigInt("id").PrimaryKey().AutoIncrement(),
+			s.BigInt("author_id").References("users", "id"),
+		),
+		s.Table("profiles", // one-to-one: the foreign key is the primary key
+			s.BigInt("user_id").PrimaryKey().References("users", "id"),
+			s.Text("website").Nullable(),
+		),
+		s.Table("tags", s.Int("id").PrimaryKey().AutoIncrement()),
+		s.Table("post_tags", // join table
+			s.BigInt("post_id").References("posts", "id"),
+			s.Int("tag_id").References("tags", "id"),
+			s.PrimaryKey("post_id", "tag_id"),
+		),
+	)
+	post := files["posts.gen.go"]
+	for _, want := range []string{
+		"Author *User `db:\"-\" json:\"author,omitempty\"`",          // belongs-to: author_id -> Author
+		"PostTags []PostTag `db:\"-\" json:\"post_tags,omitempty\"`", // has-many onto the join table
+		"Tags []Tag `db:\"-\" json:\"tags,omitempty\"`",              // many-to-many through it
+		"Author lathe.Relation[Post, User]",
+		"lathe.ManyToMany(\"Tags\", lathe.ManyToManySpec[Post, Tag, PostTag]{",
+	} {
+		if !strings.Contains(post, want) {
+			t.Errorf("posts.gen.go lacks %q", want)
+		}
+	}
+	user := files["users.gen.go"]
+	for _, want := range []string{
+		"Posts []Post `db:\"-\" json:\"posts,omitempty\"`",       // has-many
+		"Profile *Profile `db:\"-\" json:\"profile,omitempty\"`", // has-one
+		"lathe.HasOne(\"Profile\"",
+	} {
+		if !strings.Contains(user, want) {
+			t.Errorf("users.gen.go lacks %q", want)
+		}
+	}
+	if !strings.Contains(files["tags.gen.go"], "Posts []Post") {
+		t.Error("the many-to-many must exist from the other side too")
+	}
+	if !strings.Contains(files["profiles.gen.go"], "User *User") {
+		t.Error("the one-to-one needs its belongs-to side")
+	}
+}
+
+func TestSeveralForeignKeysToOneTable(t *testing.T) {
+	files := relationSrc(t,
+		s.Table("users", s.BigInt("id").PrimaryKey()),
+		s.Table("messages",
+			s.BigInt("id").PrimaryKey(),
+			s.BigInt("sender_id").References("users", "id"),
+			s.BigInt("recipient_id").References("users", "id"),
+		),
+	)
+	user := files["users.gen.go"]
+	for _, want := range []string{"MessagesBySender []Message", "MessagesByRecipient []Message"} {
+		if !strings.Contains(user, want) {
+			t.Errorf("users.gen.go lacks %q:\n%s", want, user)
+		}
+	}
+	msg := files["messages.gen.go"]
+	if !strings.Contains(msg, "Sender *User") || !strings.Contains(msg, "Recipient *User") {
+		t.Errorf("messages.gen.go lacks its belongs-to fields:\n%s", msg)
+	}
+}
+
+func TestRelationNameOverridesAndSuppression(t *testing.T) {
+	files := relationSrc(t,
+		s.Table("users", s.BigInt("id").PrimaryKey()),
+		s.Table("posts",
+			s.BigInt("id").PrimaryKey(),
+			s.BigInt("author_id").References("users", "id").Relation("Writer", "Articles"),
+			s.BigInt("editor_id").Nullable().References("users", "id").Relation("Editor", "-"),
+		),
+	)
+	if !strings.Contains(files["posts.gen.go"], "Writer *User") || !strings.Contains(files["posts.gen.go"], "Editor *User") {
+		t.Errorf("forward names not applied:\n%s", files["posts.gen.go"])
+	}
+	user := files["users.gen.go"]
+	if !strings.Contains(user, "Articles []Post") {
+		t.Errorf("reverse name not applied:\n%s", user)
+	}
+	if strings.Contains(user, "Editor") || strings.Count(user, "lathe.HasMany(") != 1 {
+		t.Errorf("Relation(_, \"-\") must suppress the reverse side:\n%s", user)
+	}
+}
+
+func TestSelfReference(t *testing.T) {
+	files := relationSrc(t, s.Table("categories",
+		s.Int("id").PrimaryKey(),
+		s.Int("parent_id").Nullable().References("categories", "id").Relation("Parent", "Children"),
+	))
+	src := files["categories.gen.go"]
+	if !strings.Contains(src, "Parent *Category") || !strings.Contains(src, "Children []Category") {
+		t.Errorf("self reference:\n%s", src)
+	}
+}
+
+func TestRelationCollisionsAreReported(t *testing.T) {
+	_, err := gen.Generate(export(t,
+		s.Table("users", s.BigInt("id").PrimaryKey(), s.Text("posts").Nullable()), // a column named like the relation
+		s.Table("posts", s.BigInt("id").PrimaryKey(), s.BigInt("user_id").References("users", "id")),
+	))
+	if err == nil || !strings.Contains(err.Error(), "collides with column posts") || !strings.Contains(err.Error(), ".Relation(") {
+		t.Fatalf("want a collision error that says how to fix it, got %v", err)
+	}
+}
+
+func TestRelationNameValidation(t *testing.T) {
+	_, err := s.New(s.Config{Dialect: s.Postgres},
+		s.Table("a", s.Int("id").PrimaryKey()),
+		s.Table("b", s.Int("id").PrimaryKey(), s.Int("a_id").References("a", "id").Relation("lower", "")),
+	).Export()
+	if err == nil || !strings.Contains(err.Error(), "exported Go identifier") {
+		t.Fatalf("got %v", err)
+	}
+}

@@ -1,5 +1,16 @@
 package lathe
 
+// ConflictStyle is the flavour of upsert SQL a database speaks.
+type ConflictStyle int
+
+const (
+	// OnConflict is INSERT ... ON CONFLICT (cols) DO UPDATE / DO NOTHING
+	// (PostgreSQL, SQLite).
+	OnConflict ConflictStyle = iota
+	// OnDuplicateKey is INSERT ... ON DUPLICATE KEY UPDATE (MySQL, MariaDB).
+	OnDuplicateKey
+)
+
 // Dialect adapts SQL generation to a database engine. The postgres, mysql and
 // sqlite packages provide implementations; user code rarely touches this
 // interface directly.
@@ -23,6 +34,8 @@ type Dialect interface {
 	LimitOffset(limit, offset int64) string
 	// MaxParams is the largest number of bind parameters in one statement.
 	MaxParams() int
+	// ConflictStyle selects the upsert syntax.
+	ConflictStyle() ConflictStyle
 	// ClassifyError maps a driver error to one of the Err*Violation sentinels,
 	// or returns nil when the error is not a recognised constraint failure.
 	ClassifyError(err error) error

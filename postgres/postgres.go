@@ -41,13 +41,14 @@ func Open(dsn string, opts ...lathe.Option) (*lathe.DB, error) {
 
 type dialect struct{}
 
-func (dialect) Name() string                  { return "postgres" }
-func (dialect) Placeholder(n int) string      { return "$" + strconv.Itoa(n) }
-func (dialect) Quote(s string) string         { return quote(s) }
-func (dialect) SupportsReturning() bool       { return true }
-func (dialect) NativeILike() bool             { return true }
-func (dialect) MaxParams() int                { return 65535 }
-func (dialect) DefaultValues(t string) string { return "INSERT INTO " + t + " DEFAULT VALUES" }
+func (dialect) Name() string                       { return "postgres" }
+func (dialect) Placeholder(n int) string           { return "$" + strconv.Itoa(n) }
+func (dialect) Quote(s string) string              { return quote(s) }
+func (dialect) SupportsReturning() bool            { return true }
+func (dialect) NativeILike() bool                  { return true }
+func (dialect) ConflictStyle() lathe.ConflictStyle { return lathe.OnConflict }
+func (dialect) MaxParams() int                     { return 65535 }
+func (dialect) DefaultValues(t string) string      { return "INSERT INTO " + t + " DEFAULT VALUES" }
 
 func (dialect) LimitOffset(limit, offset int64) string {
 	s := ""

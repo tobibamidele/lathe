@@ -179,6 +179,59 @@ func main() {
 	_, err = client.Posts.Delete().Where(db.Posts.Status.Eq(db.PostStatusArchived)).Exec(ctx)
 	check(err)
 
+	// ───────────────────────────────────────────── relations
+	section("Relations: preloading in batches (no N+1)")
+	before := statements
+	users, err := client.Users.FindMany().
+		Where(db.Users.Active.Eq(true)).
+		OrderBy(db.Users.Name.Asc()).
+		With(
+			db.Users.Orders,
+			db.Users.Posts.
+				Where(db.Posts.Status.Eq(db.PostStatusPublished)).
+				OrderBy(db.Posts.Views.Desc()).
+				Exclude(db.Posts.Cover).
+				With(
+					db.Posts.Tags.OrderBy(db.Tags.Name.Asc()),
+					db.Posts.Comments.OrderBy(db.Comments.ID.Asc()).With(db.Comments.User),
+				),
+		).
+		All(ctx)
+	check(err)
+	for _, u := range users {
+		fmt.Printf("  %s: %d orders, %d published posts\n", u.Name, len(u.Orders), len(u.Posts))
+		for _, p := range u.Posts {
+			var tagNames []string
+			for _, t := range p.Tags {
+				tagNames = append(tagNames, t.Name)
+			}
+			fmt.Printf("    %-24s views=%-3d tags=%v comments=%d\n", p.Title, p.Views, tagNames, len(p.Comments))
+			for _, c := range p.Comments {
+				who := "(deleted user)"
+				if c.User != nil {
+					who = c.User.Name
+				}
+				fmt.Printf("      %s: %q\n", who, c.Body)
+			}
+		}
+	}
+	fmt.Printf("%d rows of users, orders, posts, tags, comments and commenters loaded with %d statements\n", len(users), statements-before)
+
+	// belongs-to, and loading relations onto rows you already have
+	post, err := client.Posts.FindFirst().Where(db.Posts.Title.Eq("Hello, lathe")).With(db.Posts.Author).One(ctx)
+	check(err)
+	fmt.Println("belongs-to:", post.Title, "by", post.Author.Name)
+
+	bobRow, err := client.Users.Get(ctx, bob.ID)
+	check(err)
+	check(client.Users.Load(ctx, bobRow, db.Users.Posts))
+	fmt.Println("Load onto an existing row:", bobRow.Name, "has", len(bobRow.Posts), "post(s)")
+
+	// the other direction of the many-to-many
+	tagged, err := client.Tags.FindFirst().Where(db.Tags.Name.Eq("orm")).With(db.Tags.Posts).One(ctx)
+	check(err)
+	fmt.Println("tag", tagged.Name, "is on", len(tagged.Posts), "post(s)")
+
 	// ───────────────────────────────────────────── select builder
 	section("Select: joins, aggregates, HAVING, subqueries, scanning into structs")
 	type authorStats struct {

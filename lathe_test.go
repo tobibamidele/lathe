@@ -29,8 +29,14 @@ func (d dialect) Quote(s string) string {
 func (d dialect) SupportsReturning() bool       { return d.pg }
 func (d dialect) NativeILike() bool             { return d.pg }
 func (d dialect) DefaultValues(t string) string { return "INSERT INTO " + t + " DEFAULT VALUES" }
-func (d dialect) MaxParams() int                { return 100 }
-func (d dialect) ClassifyError(error) error     { return nil }
+func (d dialect) ConflictStyle() lathe.ConflictStyle {
+	if d.pg {
+		return lathe.OnConflict
+	}
+	return lathe.OnDuplicateKey
+}
+func (d dialect) MaxParams() int            { return 100 }
+func (d dialect) ClassifyError(error) error { return nil }
 func (d dialect) LimitOffset(limit, offset int64) string {
 	s := ""
 	if limit >= 0 {
@@ -294,5 +300,98 @@ func TestJSONRoundTrip(t *testing.T) {
 	}
 	if err := null.Scan(42); err == nil {
 		t.Error("scanning an int must fail")
+	}
+}
+
+func TestUpsertSQL(t *testing.T) {
+	newRow := func() *User { return &User{Email: "a@x.io", Age: 30, Password: "pw"} }
+	cases := []struct {
+		name string
+		pg   bool
+		q    func(m *lathe.Model[User]) *lathe.UpsertQuery[User]
+		want string
+		args []any
+	}{
+		{"pg update columns", true,
+			func(m *lathe.Model[User]) *lathe.UpsertQuery[User] {
+				return m.Upsert(newRow()).OnConflict(Users.Email).DoUpdate(Users.Age, Users.Password)
+			},
+			`INSERT INTO "users" ("email", "age", "bio", "password") VALUES ($1, $2, $3, $4) ON CONFLICT ("email") DO UPDATE SET "age" = EXCLUDED."age", "password" = EXCLUDED."password"`,
+			[]any{"a@x.io", int32(30), (*string)(nil), "pw"}},
+		{"pg update all skips key columns", true,
+			func(m *lathe.Model[User]) *lathe.UpsertQuery[User] {
+				return m.Upsert(newRow()).OnConflict(Users.Email).DoUpdate()
+			},
+			`INSERT INTO "users" ("email", "age", "bio", "password") VALUES ($1, $2, $3, $4) ON CONFLICT ("email") DO UPDATE SET "age" = EXCLUDED."age", "bio" = EXCLUDED."bio", "password" = EXCLUDED."password"`,
+			[]any{"a@x.io", int32(30), (*string)(nil), "pw"}},
+		{"pg do nothing", true,
+			func(m *lathe.Model[User]) *lathe.UpsertQuery[User] {
+				return m.Upsert(newRow()).OnConflict(Users.Email).DoNothing()
+			},
+			`INSERT INTO "users" ("email", "age", "bio", "password") VALUES ($1, $2, $3, $4) ON CONFLICT ("email") DO NOTHING`,
+			[]any{"a@x.io", int32(30), (*string)(nil), "pw"}},
+		{"pg do nothing without a target", true,
+			func(m *lathe.Model[User]) *lathe.UpsertQuery[User] { return m.Upsert(newRow()).DoNothing() },
+			`INSERT INTO "users" ("email", "age", "bio", "password") VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`,
+			[]any{"a@x.io", int32(30), (*string)(nil), "pw"}},
+		{"pg set with expressions; Set wins over DoUpdate for the same column", true,
+			func(m *lathe.Model[User]) *lathe.UpsertQuery[User] {
+				return m.Upsert(newRow()).OnConflict(Users.Email).DoUpdate(Users.Age, Users.Password).Set(lathe.Incr(Users.Age, 1))
+			},
+			`INSERT INTO "users" ("email", "age", "bio", "password") VALUES ($1, $2, $3, $4) ON CONFLICT ("email") DO UPDATE SET "password" = EXCLUDED."password", "age" = "users"."age" + $5`,
+			[]any{"a@x.io", int32(30), (*string)(nil), "pw", int32(1)}},
+		{"mysql update", false,
+			func(m *lathe.Model[User]) *lathe.UpsertQuery[User] {
+				return m.Upsert(newRow()).OnConflict(Users.Email).DoUpdate(Users.Age)
+			},
+			"INSERT INTO `users` (`email`, `age`, `bio`, `password`) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE `age` = VALUES(`age`)",
+			[]any{"a@x.io", int32(30), (*string)(nil), "pw"}},
+		{"mysql do nothing is a no-op update of the key", false,
+			func(m *lathe.Model[User]) *lathe.UpsertQuery[User] {
+				return m.Upsert(newRow()).OnConflict(Users.Email).DoNothing()
+			},
+			"INSERT INTO `users` (`email`, `age`, `bio`, `password`) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE `id` = `id`",
+			[]any{"a@x.io", int32(30), (*string)(nil), "pw"}},
+		{"mysql needs no target to update", false,
+			func(m *lathe.Model[User]) *lathe.UpsertQuery[User] { return m.Upsert(newRow()).DoUpdate(Users.Age) },
+			"INSERT INTO `users` (`email`, `age`, `bio`, `password`) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE `age` = VALUES(`age`)",
+			[]any{"a@x.io", int32(30), (*string)(nil), "pw"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			sql, args, err := c.q(model(c.pg)).Build()
+			check(t, sql, args, err, c.want, c.args...)
+		})
+	}
+}
+
+func TestUpsertMisuse(t *testing.T) {
+	m := model(true)
+	row := func() *User { return &User{Email: "a@x.io"} }
+	cases := []struct {
+		name string
+		q    *lathe.UpsertQuery[User]
+		want string
+	}{
+		{"no action chosen", m.Upsert(row()).OnConflict(Users.Email), "needs DoNothing()"},
+		{"both actions", m.Upsert(row()).OnConflict(Users.Email).DoNothing().DoUpdate(Users.Age), "cannot be combined"},
+		{"update without a target on postgres", m.Upsert(row()).DoUpdate(Users.Age), "needs OnConflict"},
+		{"target from another table", m.Upsert(row()).OnConflict(Orders.ID).DoNothing(), "does not belong"},
+		{"column that is not part of the insert", m.Upsert(row()).OnConflict(Users.Email).DoUpdate(Users.Created), "not part of the INSERT"},
+		{"only key columns to update", m.Upsert(&User{Email: "x"}).OnConflict(Users.Email).DoUpdate(), ""}, // age/bio/password are inserted, so fine
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			_, _, err := c.q.Build()
+			if c.want == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Fatalf("want error containing %q, got %v", c.want, err)
+			}
+		})
 	}
 }

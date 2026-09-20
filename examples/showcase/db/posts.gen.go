@@ -21,6 +21,18 @@ type Post struct {
 	Views       int64      `db:"views" json:"views"`
 	PublishedAt *time.Time `db:"published_at" json:"published_at"`
 	Cover       []byte     `db:"cover" json:"cover"`
+
+	// Comments holds the related Comment rows. It is nil until loaded with With(db.Posts.Comments) or Load.
+	Comments []Comment `db:"-" json:"comments,omitempty"`
+
+	// PostTags holds the related PostTag rows. It is nil until loaded with With(db.Posts.PostTags) or Load.
+	PostTags []PostTag `db:"-" json:"post_tags,omitempty"`
+
+	// Author is the User this row belongs to. It is nil until loaded with With(db.Posts.Author) or Load.
+	Author *User `db:"-" json:"author,omitempty"`
+
+	// Tags holds the related Tag rows through post_tags. It is nil until loaded with With(db.Posts.Tags) or Load.
+	Tags []Tag `db:"-" json:"tags,omitempty"`
 }
 
 // PostStatus is the set of values of Post.Status.
@@ -58,6 +70,18 @@ type PostColumns struct {
 	Views       lathe.Column[int64]
 	PublishedAt lathe.Column[time.Time]
 	Cover       lathe.Column[[]byte]
+
+	// Comments is a relation to Comment, for With, Load and LoadMany.
+	Comments lathe.Relation[Post, Comment]
+
+	// PostTags is a relation to PostTag, for With, Load and LoadMany.
+	PostTags lathe.Relation[Post, PostTag]
+
+	// Author is a relation to User, for With, Load and LoadMany.
+	Author lathe.Relation[Post, User]
+
+	// Tags is a relation to Tag, for With, Load and LoadMany.
+	Tags lathe.Relation[Post, Tag]
 }
 
 // TableName returns "posts". It makes Posts usable in joins.
@@ -76,6 +100,27 @@ var Posts = PostColumns{
 	Views:       lathe.NewColumn[int64]("posts", "views"),
 	PublishedAt: lathe.NewColumn[time.Time]("posts", "published_at"),
 	Cover:       lathe.NewColumn[[]byte]("posts", "cover"),
+	Comments: lathe.HasMany("Comments", lathe.HasManySpec[Post, Comment]{
+		Source: postSpec, Target: commentSpec,
+		SourceCols: []string{"id"}, TargetCols: []string{"post_id"},
+		Set: func(m *Post, v []Comment) { m.Comments = v },
+	}),
+	PostTags: lathe.HasMany("PostTags", lathe.HasManySpec[Post, PostTag]{
+		Source: postSpec, Target: postTagSpec,
+		SourceCols: []string{"id"}, TargetCols: []string{"post_id"},
+		Set: func(m *Post, v []PostTag) { m.PostTags = v },
+	}),
+	Author: lathe.BelongsTo("Author", lathe.BelongsToSpec[Post, User]{
+		Source: postSpec, Target: userSpec,
+		SourceCols: []string{"author_id"}, TargetCols: []string{"id"},
+		Set: func(m *Post, v *User) { m.Author = v },
+	}),
+	Tags: lathe.ManyToMany("Tags", lathe.ManyToManySpec[Post, Tag, PostTag]{
+		Source: postSpec, Target: tagSpec, Through: postTagSpec,
+		SourceCols: []string{"id"}, TargetCols: []string{"id"},
+		ThroughSourceCols: []string{"post_id"}, ThroughTargetCols: []string{"tag_id"},
+		Set: func(m *Post, v []Tag) { m.Tags = v },
+	}),
 }
 
 var postSpec = &lathe.TableSpec[Post]{

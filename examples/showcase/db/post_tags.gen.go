@@ -13,12 +13,24 @@ import (
 type PostTag struct {
 	PostID uuid.UUID `db:"post_id" json:"post_id"`
 	TagID  int32     `db:"tag_id" json:"tag_id"`
+
+	// Post is the Post this row belongs to. It is nil until loaded with With(db.PostTags.Post) or Load.
+	Post *Post `db:"-" json:"post,omitempty"`
+
+	// Tag is the Tag this row belongs to. It is nil until loaded with With(db.PostTags.Tag) or Load.
+	Tag *Tag `db:"-" json:"tag,omitempty"`
 }
 
 // PostTagColumns holds a typed reference to every column of the "post_tags" table.
 type PostTagColumns struct {
 	PostID lathe.Column[uuid.UUID]
 	TagID  lathe.Column[int32]
+
+	// Post is a relation to Post, for With, Load and LoadMany.
+	Post lathe.Relation[PostTag, Post]
+
+	// Tag is a relation to Tag, for With, Load and LoadMany.
+	Tag lathe.Relation[PostTag, Tag]
 }
 
 // TableName returns "post_tags". It makes PostTags usable in joins.
@@ -30,6 +42,16 @@ func (PostTagColumns) TableName() string { return "post_tags" }
 var PostTags = PostTagColumns{
 	PostID: lathe.NewColumn[uuid.UUID]("post_tags", "post_id"),
 	TagID:  lathe.NewColumn[int32]("post_tags", "tag_id"),
+	Post: lathe.BelongsTo("Post", lathe.BelongsToSpec[PostTag, Post]{
+		Source: postTagSpec, Target: postSpec,
+		SourceCols: []string{"post_id"}, TargetCols: []string{"id"},
+		Set: func(m *PostTag, v *Post) { m.Post = v },
+	}),
+	Tag: lathe.BelongsTo("Tag", lathe.BelongsToSpec[PostTag, Tag]{
+		Source: postTagSpec, Target: tagSpec,
+		SourceCols: []string{"tag_id"}, TargetCols: []string{"id"},
+		Set: func(m *PostTag, v *Tag) { m.Tag = v },
+	}),
 }
 
 var postTagSpec = &lathe.TableSpec[PostTag]{

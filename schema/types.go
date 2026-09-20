@@ -167,11 +167,21 @@ type ForeignKeyDef struct {
 	RefColumns []string `json:"refColumns"`
 	OnDelete   Action   `json:"onDelete,omitempty"`
 	OnUpdate   Action   `json:"onUpdate,omitempty"`
+
+	// Relation and Reverse name the generated relation fields: Relation on the
+	// table that holds the foreign key (belongs-to), Reverse on the referenced
+	// table (has-many or has-one). Empty means "derive a name"; "-" means "do
+	// not generate". Code generation hints only.
+	Relation string `json:"relation,omitempty"`
+	Reverse  string `json:"reverse,omitempty"`
 }
 
-// Equal reports whether two foreign keys are identical.
+// Equal reports whether two foreign keys produce identical DDL (relation names
+// are ignored).
 func (f *ForeignKeyDef) Equal(o *ForeignKeyDef) bool {
-	return reflect.DeepEqual(f, o)
+	return f.Name == o.Name && f.RefTable == o.RefTable && f.OnDelete == o.OnDelete &&
+		f.OnUpdate == o.OnUpdate && reflect.DeepEqual(f.Columns, o.Columns) &&
+		reflect.DeepEqual(f.RefColumns, o.RefColumns)
 }
 
 // Table describes a database table.

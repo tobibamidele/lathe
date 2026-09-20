@@ -9,8 +9,9 @@ import (
 )
 
 var (
-	identRE  = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
-	numberRE = regexp.MustCompile(`^-?[0-9]+(\.[0-9]+)?$`)
+	identRE   = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+	numberRE  = regexp.MustCompile(`^-?[0-9]+(\.[0-9]+)?$`)
+	relNameRE = regexp.MustCompile(`^[A-Z][A-Za-z0-9_]*$`)
 )
 
 // Validate checks a snapshot for internal consistency. All problems are
@@ -118,6 +119,11 @@ func validateFK(s *Snapshot, t *TableDef, cols map[string]*ColumnDef, fk *Foreig
 	var errs []error
 	fail := func(format string, args ...any) {
 		errs = append(errs, fmt.Errorf("table %q: foreign key %q: "+format, append([]any{t.Name, fk.Name}, args...)...))
+	}
+	for _, name := range []string{fk.Relation, fk.Reverse} {
+		if name != "" && name != "-" && !relNameRE.MatchString(name) {
+			fail("relation name %q must be an exported Go identifier (or - to skip)", name)
+		}
 	}
 	if len(fk.Columns) == 0 || len(fk.Columns) != len(fk.RefColumns) {
 		fail("needs the same, non-zero number of local and referenced columns")

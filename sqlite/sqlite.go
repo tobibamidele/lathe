@@ -79,12 +79,13 @@ func isMemory(path string) bool {
 
 type dialect struct{}
 
-func (dialect) Name() string                  { return "sqlite" }
-func (dialect) Placeholder(int) string        { return "?" }
-func (dialect) SupportsReturning() bool       { return true }
-func (dialect) NativeILike() bool             { return false }
-func (dialect) MaxParams() int                { return 32766 }
-func (dialect) DefaultValues(t string) string { return "INSERT INTO " + t + " DEFAULT VALUES" }
+func (dialect) Name() string                       { return "sqlite" }
+func (dialect) Placeholder(int) string             { return "?" }
+func (dialect) SupportsReturning() bool            { return true }
+func (dialect) NativeILike() bool                  { return false }
+func (dialect) ConflictStyle() lathe.ConflictStyle { return lathe.OnConflict }
+func (dialect) MaxParams() int                     { return 32766 }
+func (dialect) DefaultValues(t string) string      { return "INSERT INTO " + t + " DEFAULT VALUES" }
 
 func (dialect) Quote(s string) string {
 	return `"` + strings.ReplaceAll(s, `"`, `""`) + `"`

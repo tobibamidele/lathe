@@ -13,6 +13,11 @@ type {{.Model}} struct {
 {{- range .Fields}}
 	{{.Name}} {{.GoType}} `db:"{{.Column}}" json:"{{.Column}}"`
 {{- end}}
+{{- range .Relations}}
+
+	// {{.Doc}}
+	{{.Field}} {{.GoType}} `db:"-" json:"{{.JSON}},omitempty"`
+{{- end}}
 }
 {{range .Enums}}
 // {{.Type}} is the set of values of {{$.Model}}.{{.Field}}.
@@ -44,6 +49,11 @@ type {{.Model}}Columns struct {
 {{- range .Fields}}
 	{{.Name}} lathe.Column[{{.BaseType}}]
 {{- end}}
+{{- range .Relations}}
+
+	// {{.Field}} is a relation to {{.Target}}, for With, Load and LoadMany.
+	{{.Field}} lathe.Relation[{{$.Model}}, {{.Target}}]
+{{- end}}
 }
 
 // TableName returns {{quote .Name}}. It makes {{.Vars}} usable in joins.
@@ -55,6 +65,9 @@ func ({{.Model}}Columns) TableName() string { return {{printf "%q" .Name}} }
 var {{.Vars}} = {{.Model}}Columns{
 {{- range .Fields}}
 	{{.Name}}: lathe.NewColumn[{{.BaseType}}]({{printf "%q" $.Name}}, {{printf "%q" .Column}}),
+{{- end}}
+{{- range .Relations}}
+	{{.Field}}: {{.Constructor}},
 {{- end}}
 }
 

@@ -255,6 +255,19 @@ func (c *ColumnBuilder) OnUpdate(a Action) *ColumnBuilder {
 	return c
 }
 
+// Relation names the relation fields generated for this foreign key: forward is
+// the field on this table's model (belongs-to, for example "Author"), reverse
+// the field on the referenced table's model (for example "Posts"). Use "" to
+// keep the derived name and "-" to skip that side. It must follow References.
+func (c *ColumnBuilder) Relation(forward, reverse string) *ColumnBuilder {
+	if c.ref == nil {
+		c.buildErr = append(c.buildErr, fmt.Errorf("column %q: Relation requires References", c.col.Name))
+		return c
+	}
+	c.ref.fk.Relation, c.ref.fk.Reverse = forward, reverse
+	return c
+}
+
 // Field overrides the generated Go field name.
 func (c *ColumnBuilder) Field(name string) *ColumnBuilder { c.col.Field = name; return c }
 
@@ -336,6 +349,12 @@ func (f *ForeignKeyBuilder) OnDelete(a Action) *ForeignKeyBuilder { f.fk.OnDelet
 
 // OnUpdate sets the action taken when the referenced key is updated.
 func (f *ForeignKeyBuilder) OnUpdate(a Action) *ForeignKeyBuilder { f.fk.OnUpdate = a; return f }
+
+// Relation names the generated relation fields, like [ColumnBuilder.Relation].
+func (f *ForeignKeyBuilder) Relation(forward, reverse string) *ForeignKeyBuilder {
+	f.fk.Relation, f.fk.Reverse = forward, reverse
+	return f
+}
 
 // Name overrides the generated constraint name.
 func (f *ForeignKeyBuilder) Name(name string) *ForeignKeyBuilder { f.fk.Name = name; return f }

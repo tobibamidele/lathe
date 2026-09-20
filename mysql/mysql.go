@@ -97,12 +97,13 @@ func NormalizeDSN(dsn string) (string, error) {
 
 type dialect struct{}
 
-func (dialect) Name() string                  { return "mysql" }
-func (dialect) Placeholder(int) string        { return "?" }
-func (dialect) SupportsReturning() bool       { return false }
-func (dialect) NativeILike() bool             { return false }
-func (dialect) MaxParams() int                { return 65535 }
-func (dialect) DefaultValues(t string) string { return "INSERT INTO " + t + " () VALUES ()" }
+func (dialect) Name() string                       { return "mysql" }
+func (dialect) Placeholder(int) string             { return "?" }
+func (dialect) SupportsReturning() bool            { return false }
+func (dialect) NativeILike() bool                  { return false }
+func (dialect) ConflictStyle() lathe.ConflictStyle { return lathe.OnDuplicateKey }
+func (dialect) MaxParams() int                     { return 65535 }
+func (dialect) DefaultValues(t string) string      { return "INSERT INTO " + t + " () VALUES ()" }
 
 func (dialect) Quote(s string) string {
 	return "`" + strings.ReplaceAll(s, "`", "``") + "`"

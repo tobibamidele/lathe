@@ -108,6 +108,7 @@ type tableView struct {
 	Fields     []fieldView
 	PrimaryKey []fieldView
 	Enums      []*enumView
+	Relations  []relView
 	Imports    []string
 }
 
@@ -217,6 +218,9 @@ func buildViews(exp *schema.Export) ([]*tableView, error) {
 		})
 		v.Imports = groupImports(imports)
 		views = append(views, v)
+	}
+	if err := deriveRelations(exp, views); err != nil {
+		return nil, err
 	}
 	return views, nil
 }

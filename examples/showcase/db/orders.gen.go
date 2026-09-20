@@ -17,6 +17,9 @@ type Order struct {
 	Total    decimal.Decimal `db:"total" json:"total"`
 	Currency string          `db:"currency" json:"currency"`
 	PlacedAt time.Time       `db:"placed_at" json:"placed_at"`
+
+	// User is the User this row belongs to. It is nil until loaded with With(db.Orders.User) or Load.
+	User *User `db:"-" json:"user,omitempty"`
 }
 
 // OrderColumns holds a typed reference to every column of the "orders" table.
@@ -26,6 +29,9 @@ type OrderColumns struct {
 	Total    lathe.Column[decimal.Decimal]
 	Currency lathe.Column[string]
 	PlacedAt lathe.Column[time.Time]
+
+	// User is a relation to User, for With, Load and LoadMany.
+	User lathe.Relation[Order, User]
 }
 
 // TableName returns "orders". It makes Orders usable in joins.
@@ -40,6 +46,11 @@ var Orders = OrderColumns{
 	Total:    lathe.NewColumn[decimal.Decimal]("orders", "total"),
 	Currency: lathe.NewColumn[string]("orders", "currency"),
 	PlacedAt: lathe.NewColumn[time.Time]("orders", "placed_at"),
+	User: lathe.BelongsTo("User", lathe.BelongsToSpec[Order, User]{
+		Source: orderSpec, Target: userSpec,
+		SourceCols: []string{"user_id"}, TargetCols: []string{"id"},
+		Set: func(m *Order, v *User) { m.User = v },
+	}),
 }
 
 var orderSpec = &lathe.TableSpec[Order]{

@@ -34,6 +34,12 @@ func (d testDialect) LimitOffset(limit, offset int64) string {
 	}
 	return s
 }
+func (d testDialect) ConflictStyle() ConflictStyle {
+	if d.pg {
+		return OnConflict
+	}
+	return OnDuplicateKey
+}
 func (d testDialect) MaxParams() int            { return 100 }
 func (d testDialect) ClassifyError(error) error { return nil }
 

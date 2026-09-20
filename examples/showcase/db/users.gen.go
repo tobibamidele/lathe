@@ -22,6 +22,15 @@ type User struct {
 	Karma        int32      `db:"karma" json:"karma"`
 	Settings     lathe.JSON `db:"settings" json:"settings"`
 	CreatedAt    time.Time  `db:"created_at" json:"created_at"`
+
+	// Comments holds the related Comment rows. It is nil until loaded with With(db.Users.Comments) or Load.
+	Comments []Comment `db:"-" json:"comments,omitempty"`
+
+	// Orders holds the related Order rows. It is nil until loaded with With(db.Users.Orders) or Load.
+	Orders []Order `db:"-" json:"orders,omitempty"`
+
+	// Posts holds the related Post rows. It is nil until loaded with With(db.Users.Posts) or Load.
+	Posts []Post `db:"-" json:"posts,omitempty"`
 }
 
 // UserRole is the set of values of User.Role.
@@ -61,6 +70,15 @@ type UserColumns struct {
 	Karma        lathe.Column[int32]
 	Settings     lathe.Column[lathe.JSON]
 	CreatedAt    lathe.Column[time.Time]
+
+	// Comments is a relation to Comment, for With, Load and LoadMany.
+	Comments lathe.Relation[User, Comment]
+
+	// Orders is a relation to Order, for With, Load and LoadMany.
+	Orders lathe.Relation[User, Order]
+
+	// Posts is a relation to Post, for With, Load and LoadMany.
+	Posts lathe.Relation[User, Post]
 }
 
 // TableName returns "users". It makes Users usable in joins.
@@ -81,6 +99,21 @@ var Users = UserColumns{
 	Karma:        lathe.NewColumn[int32]("users", "karma"),
 	Settings:     lathe.NewColumn[lathe.JSON]("users", "settings"),
 	CreatedAt:    lathe.NewColumn[time.Time]("users", "created_at"),
+	Comments: lathe.HasMany("Comments", lathe.HasManySpec[User, Comment]{
+		Source: userSpec, Target: commentSpec,
+		SourceCols: []string{"id"}, TargetCols: []string{"user_id"},
+		Set: func(m *User, v []Comment) { m.Comments = v },
+	}),
+	Orders: lathe.HasMany("Orders", lathe.HasManySpec[User, Order]{
+		Source: userSpec, Target: orderSpec,
+		SourceCols: []string{"id"}, TargetCols: []string{"user_id"},
+		Set: func(m *User, v []Order) { m.Orders = v },
+	}),
+	Posts: lathe.HasMany("Posts", lathe.HasManySpec[User, Post]{
+		Source: userSpec, Target: postSpec,
+		SourceCols: []string{"id"}, TargetCols: []string{"author_id"},
+		Set: func(m *User, v []Post) { m.Posts = v },
+	}),
 }
 
 var userSpec = &lathe.TableSpec[User]{

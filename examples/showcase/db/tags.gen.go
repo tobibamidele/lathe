@@ -12,12 +12,24 @@ import (
 type Tag struct {
 	ID   int32  `db:"id" json:"id"`
 	Name string `db:"name" json:"name"`
+
+	// PostTags holds the related PostTag rows. It is nil until loaded with With(db.Tags.PostTags) or Load.
+	PostTags []PostTag `db:"-" json:"post_tags,omitempty"`
+
+	// Posts holds the related Post rows through post_tags. It is nil until loaded with With(db.Tags.Posts) or Load.
+	Posts []Post `db:"-" json:"posts,omitempty"`
 }
 
 // TagColumns holds a typed reference to every column of the "tags" table.
 type TagColumns struct {
 	ID   lathe.Column[int32]
 	Name lathe.Column[string]
+
+	// PostTags is a relation to PostTag, for With, Load and LoadMany.
+	PostTags lathe.Relation[Tag, PostTag]
+
+	// Posts is a relation to Post, for With, Load and LoadMany.
+	Posts lathe.Relation[Tag, Post]
 }
 
 // TableName returns "tags". It makes Tags usable in joins.
@@ -29,6 +41,17 @@ func (TagColumns) TableName() string { return "tags" }
 var Tags = TagColumns{
 	ID:   lathe.NewColumn[int32]("tags", "id"),
 	Name: lathe.NewColumn[string]("tags", "name"),
+	PostTags: lathe.HasMany("PostTags", lathe.HasManySpec[Tag, PostTag]{
+		Source: tagSpec, Target: postTagSpec,
+		SourceCols: []string{"id"}, TargetCols: []string{"tag_id"},
+		Set: func(m *Tag, v []PostTag) { m.PostTags = v },
+	}),
+	Posts: lathe.ManyToMany("Posts", lathe.ManyToManySpec[Tag, Post, PostTag]{
+		Source: tagSpec, Target: postSpec, Through: postTagSpec,
+		SourceCols: []string{"id"}, TargetCols: []string{"id"},
+		ThroughSourceCols: []string{"tag_id"}, ThroughTargetCols: []string{"post_id"},
+		Set: func(m *Tag, v []Post) { m.Posts = v },
+	}),
 }
 
 var tagSpec = &lathe.TableSpec[Tag]{
