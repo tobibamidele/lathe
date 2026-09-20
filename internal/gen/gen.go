@@ -285,9 +285,11 @@ func goType(c *schema.ColumnDef, model, field string) (string, string) {
 // omitZero reports whether a zero Go value in this column means "not set", so
 // INSERT should leave the column out and let the database default apply.
 //
-// A zero bool, number or string is a legitimate value, so constant defaults on
-// those columns are never applied behind the caller's back; declare the column
-// Nullable to get the default when the pointer is nil.
+// A zero bool or number is a legitimate value (false, 0), so a constant default
+// on those columns is never applied behind the caller's back; declare the
+// column Nullable to get the default when the pointer is nil. For everything
+// else (an empty string, a zero time, a nil JSON document, an empty enum) zero
+// is not a value anyone chooses deliberately, so it means "use the default".
 func omitZero(c *schema.ColumnDef) bool {
 	d := c.Default
 	switch {
@@ -298,7 +300,7 @@ func omitZero(c *schema.ColumnDef) bool {
 	case d.Kind != schema.DefaultLiteral:
 		return true
 	}
-	return c.Type.Kind == schema.KindEnum
+	return c.Type.Kind != schema.KindBool && !c.Type.Kind.IsNumeric()
 }
 
 // clientDefault returns a func literal that fills a zero UUID with a random

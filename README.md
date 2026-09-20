@@ -147,20 +147,22 @@ is generated.
 
 ### Defaults, precisely
 
-A Go zero value is often a real value (`false`, `0`, `""`), so `Create` never
+A Go zero value is sometimes a real value (`false`, `0`), so `Create` never
 silently replaces one with a constant default. `Create` leaves a column out of
 the `INSERT`, letting the database fill it, only when zero means "not set":
 
 - auto increment keys,
 - columns defaulting to `now`, a UUID or an expression,
-- enums with a default (the empty string is not a valid value),
+- string, enum, time and JSON columns with a constant default, when empty
+  (`Currency: ""` means "use `'USD'`"),
 - **nullable** columns with any default, when the pointer is nil.
 
-So `Active bool` with `Default(true)` inserts whatever you set (`false` by
-default). To get the database default, make the column `Nullable()` and leave
-the pointer nil. UUID defaults are generated in Go (`uuid.New()`) when the field
-is zero, so the value is known on every dialect, and the column keeps its
-database default for rows inserted by other tools.
+So `Active bool` with `Default(true)` inserts whatever you set (`false` unless
+you say otherwise), and so does `Karma int` with `Default(0)`. To get a
+bool or number default from the database, make the column `Nullable()` and
+leave the pointer nil. UUID defaults are generated in Go (`uuid.New()`) when
+the field is zero, so the value is known on every dialect, and the column keeps
+its database default for rows inserted by other tools.
 
 ## Querying
 

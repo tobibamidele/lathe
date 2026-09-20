@@ -1,0 +1,447 @@
+{
+  "version": 1,
+  "dialect": "postgres",
+  "tables": [
+    {
+      "name": "comments",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "bigint"
+          },
+          "autoIncrement": true
+        },
+        {
+          "name": "post_id",
+          "type": {
+            "kind": "uuid"
+          }
+        },
+        {
+          "name": "user_id",
+          "type": {
+            "kind": "bigint"
+          },
+          "nullable": true
+        },
+        {
+          "name": "body",
+          "type": {
+            "kind": "text"
+          }
+        },
+        {
+          "name": "created_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "default": {
+            "kind": "now"
+          }
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "foreignKeys": [
+        {
+          "name": "fk_comments_post_id",
+          "columns": [
+            "post_id"
+          ],
+          "refTable": "posts",
+          "refColumns": [
+            "id"
+          ],
+          "onDelete": "CASCADE"
+        },
+        {
+          "name": "fk_comments_user_id",
+          "columns": [
+            "user_id"
+          ],
+          "refTable": "users",
+          "refColumns": [
+            "id"
+          ],
+          "onDelete": "SET NULL"
+        }
+      ]
+    },
+    {
+      "name": "orders",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "bigint"
+          },
+          "autoIncrement": true
+        },
+        {
+          "name": "user_id",
+          "type": {
+            "kind": "bigint"
+          }
+        },
+        {
+          "name": "total",
+          "type": {
+            "kind": "decimal",
+            "precision": 19,
+            "scale": 4
+          }
+        },
+        {
+          "name": "currency",
+          "type": {
+            "kind": "varchar",
+            "length": 3
+          },
+          "default": {
+            "kind": "literal",
+            "lit": "string",
+            "value": "USD"
+          }
+        },
+        {
+          "name": "placed_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "default": {
+            "kind": "now"
+          }
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "foreignKeys": [
+        {
+          "name": "fk_orders_user_id",
+          "columns": [
+            "user_id"
+          ],
+          "refTable": "users",
+          "refColumns": [
+            "id"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "post_tags",
+      "columns": [
+        {
+          "name": "post_id",
+          "type": {
+            "kind": "uuid"
+          }
+        },
+        {
+          "name": "tag_id",
+          "type": {
+            "kind": "int"
+          }
+        }
+      ],
+      "primaryKey": [
+        "post_id",
+        "tag_id"
+      ],
+      "foreignKeys": [
+        {
+          "name": "fk_post_tags_post_id",
+          "columns": [
+            "post_id"
+          ],
+          "refTable": "posts",
+          "refColumns": [
+            "id"
+          ],
+          "onDelete": "CASCADE"
+        },
+        {
+          "name": "fk_post_tags_tag_id",
+          "columns": [
+            "tag_id"
+          ],
+          "refTable": "tags",
+          "refColumns": [
+            "id"
+          ],
+          "onDelete": "CASCADE"
+        }
+      ]
+    },
+    {
+      "name": "posts",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "default": {
+            "kind": "uuid"
+          }
+        },
+        {
+          "name": "author_id",
+          "type": {
+            "kind": "bigint"
+          }
+        },
+        {
+          "name": "title",
+          "type": {
+            "kind": "varchar",
+            "length": 200
+          }
+        },
+        {
+          "name": "slug",
+          "type": {
+            "kind": "varchar",
+            "length": 200
+          },
+          "nullable": true
+        },
+        {
+          "name": "body",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": true
+        },
+        {
+          "name": "status",
+          "type": {
+            "kind": "enum",
+            "values": [
+              "draft",
+              "published",
+              "archived"
+            ]
+          },
+          "default": {
+            "kind": "literal",
+            "lit": "string",
+            "value": "draft"
+          }
+        },
+        {
+          "name": "views",
+          "type": {
+            "kind": "bigint"
+          },
+          "default": {
+            "kind": "literal",
+            "lit": "number",
+            "value": "0"
+          }
+        },
+        {
+          "name": "published_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": true
+        },
+        {
+          "name": "cover",
+          "type": {
+            "kind": "bytes"
+          },
+          "nullable": true
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "indexes": [
+        {
+          "name": "idx_posts_author_id_status",
+          "columns": [
+            "author_id",
+            "status"
+          ]
+        },
+        {
+          "name": "uq_posts_author_id_slug",
+          "columns": [
+            "author_id",
+            "slug"
+          ],
+          "unique": true
+        }
+      ],
+      "foreignKeys": [
+        {
+          "name": "fk_posts_author_id",
+          "columns": [
+            "author_id"
+          ],
+          "refTable": "users",
+          "refColumns": [
+            "id"
+          ],
+          "onDelete": "CASCADE"
+        }
+      ]
+    },
+    {
+      "name": "tags",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "int"
+          },
+          "autoIncrement": true
+        },
+        {
+          "name": "name",
+          "type": {
+            "kind": "varchar",
+            "length": 50
+          }
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "indexes": [
+        {
+          "name": "uq_tags_name",
+          "columns": [
+            "name"
+          ],
+          "unique": true
+        }
+      ]
+    },
+    {
+      "name": "users",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "bigint"
+          },
+          "autoIncrement": true
+        },
+        {
+          "name": "email",
+          "type": {
+            "kind": "varchar",
+            "length": 255
+          }
+        },
+        {
+          "name": "name",
+          "type": {
+            "kind": "varchar",
+            "length": 120
+          }
+        },
+        {
+          "name": "bio",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": true
+        },
+        {
+          "name": "password_hash",
+          "type": {
+            "kind": "text"
+          }
+        },
+        {
+          "name": "api_key",
+          "type": {
+            "kind": "varchar",
+            "length": 64
+          },
+          "nullable": true
+        },
+        {
+          "name": "role",
+          "type": {
+            "kind": "enum",
+            "values": [
+              "admin",
+              "editor",
+              "reader"
+            ]
+          },
+          "default": {
+            "kind": "literal",
+            "lit": "string",
+            "value": "reader"
+          }
+        },
+        {
+          "name": "active",
+          "type": {
+            "kind": "bool"
+          },
+          "default": {
+            "kind": "literal",
+            "lit": "bool",
+            "value": "true"
+          }
+        },
+        {
+          "name": "karma",
+          "type": {
+            "kind": "int"
+          },
+          "default": {
+            "kind": "literal",
+            "lit": "number",
+            "value": "0"
+          }
+        },
+        {
+          "name": "settings",
+          "type": {
+            "kind": "json"
+          },
+          "nullable": true
+        },
+        {
+          "name": "created_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "default": {
+            "kind": "now"
+          }
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "indexes": [
+        {
+          "name": "uq_users_api_key",
+          "columns": [
+            "api_key"
+          ],
+          "unique": true
+        },
+        {
+          "name": "uq_users_email",
+          "columns": [
+            "email"
+          ],
+          "unique": true
+        }
+      ]
+    }
+  ]
+}

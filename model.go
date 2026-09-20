@@ -367,9 +367,10 @@ func (m *Model[M]) planInsert(row *M) insertPlan {
 //
 // Columns whose zero value means "not set" are left out of the INSERT so the
 // database fills them in: auto increment keys, columns defaulting to now, a
-// UUID or an expression, enums with a default, and nullable columns with any
-// default (a nil pointer). Zero bools, numbers and strings are always sent,
-// because they are legitimate values; make such a column nullable to get its
+// UUID or an expression, string, enum, time and JSON columns with a constant
+// default (empty means "use the default"), and nullable columns with any
+// default (a nil pointer). Zero bools and numbers are always sent, because
+// false and 0 are legitimate values; make such a column nullable to get its
 // constant default when the field is nil.
 func (m *Model[M]) Create(ctx context.Context, row *M) error {
 	d := m.db.dialect

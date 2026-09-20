@@ -49,6 +49,8 @@ func TestGeneratedShape(t *testing.T) {
 			s.Money("amount"),
 			s.Bool("active").Default(true),
 			s.Bool("flag").Nullable().Default(true),
+			s.VarChar("note", 20).Default("n/a"),
+			s.Int("count").Default(0),
 			s.JSON("meta").Nullable(),
 			s.Bytes("blob").Nullable(),
 		),
@@ -80,6 +82,12 @@ func TestGeneratedShape(t *testing.T) {
 	}
 	if !strings.Contains(lineWith(src, `Column: "flag"`), "HasDefault: true") {
 		t.Error("nullable bool with a default should let the database apply it when nil")
+	}
+	if !strings.Contains(lineWith(src, `Column: "note"`), "HasDefault: true") {
+		t.Error("a string with a constant default should be treated as unset when empty")
+	}
+	if strings.Contains(lineWith(src, `Column: "count"`), "HasDefault") {
+		t.Error("a non-nullable number with a constant default must always be sent")
 	}
 	if !strings.Contains(lineWith(src, `Column: "kind"`), "HasDefault: true") {
 		t.Error("enum with a default should be treated as unset when empty")
