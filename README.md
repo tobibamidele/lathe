@@ -12,8 +12,9 @@ user, err := client.Users.FindFirst().
 ```
 
 `db.Users.Email` is a `lathe.Column[string]`. `db.Users.Email.Eq(42)` does not
-compile. There is no reflection on the query path, no struct tags to keep in
-sync, and no string column names in your code.
+compile. Reads use generated field accessors instead of reflection, there are
+no struct tags to keep in sync and no string column names in your code.
+Requires Go 1.22 or newer.
 
 > **Status: v0.1.** The whole pipeline (schema, codegen, migration planning,
 > migration running, queries) is implemented and tested against real

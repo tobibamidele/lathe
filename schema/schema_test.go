@@ -148,3 +148,36 @@ func TestStripHints(t *testing.T) {
 		t.Error("StripHints must not mutate the original")
 	}
 }
+
+func TestCompositeForeignKey(t *testing.T) {
+	exp, err := s.New(s.Config{Dialect: s.Postgres},
+		s.Table("orgs", s.Int("tenant").PrimaryKey(), s.Int("id").PrimaryKey()),
+		s.Table("members",
+			s.Int("id").PrimaryKey(),
+			s.Int("org_tenant"), s.Int("org_id"),
+			s.ForeignKey("org_tenant", "org_id").References("orgs", "tenant", "id").OnDelete(s.Cascade),
+		),
+	).Export()
+	if err != nil {
+		t.Fatal(err)
+	}
+	fk := exp.Snapshot.Table("members").ForeignKey("fk_members_org_tenant_org_id")
+	if fk == nil || len(fk.Columns) != 2 || fk.RefTable != "orgs" || fk.OnDelete != s.Cascade {
+		t.Fatalf("composite fk: %+v", exp.Snapshot.Table("members").ForeignKeys)
+	}
+
+	// a foreign key whose column counts differ, or that lacks References, is rejected
+	_, err = s.New(s.Config{Dialect: s.Postgres},
+		s.Table("orgs", s.Int("id").PrimaryKey()),
+		s.Table("m", s.Int("id").PrimaryKey(), s.Int("a"), s.Int("b"), s.ForeignKey("a", "b").References("orgs", "id")),
+	).Export()
+	if err == nil || !strings.Contains(err.Error(), "same, non-zero number") {
+		t.Errorf("mismatched column counts: %v", err)
+	}
+	_, err = s.New(s.Config{Dialect: s.Postgres},
+		s.Table("m", s.Int("id").PrimaryKey(), s.Int("a"), s.ForeignKey("a")),
+	).Export()
+	if err == nil || !strings.Contains(err.Error(), "no References") {
+		t.Errorf("missing References: %v", err)
+	}
+}

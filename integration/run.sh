@@ -41,7 +41,7 @@ export LATHE_DIALECT="$D"
 step() { printf '\n\033[1m== [%s] %s\033[0m\n' "$D" "$*"; }
 gotest() {
   # -v output is filtered to one line per test so skips cannot hide
-  go test -count=1 -v "$@" ./... | grep -E '^(--- |ok |FAIL|panic|\s+.*_test.go)'
+  go test -count=1 -v ${LATHE_TEST_FLAGS:-} "$@" ./... | grep -E '^(--- |ok |FAIL|panic|\s+.*_test.go)'
 }
 
 reset_db
