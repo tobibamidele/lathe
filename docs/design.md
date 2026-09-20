@@ -101,14 +101,4 @@ did not return, then a row-by-row `=` lookup for anything Go and the database
 disagree about (collations). Duplicate keys inside one call are rejected before
 any SQL runs.
 
-## Renaming
-
-The module path and command name appear in `go.mod`, imports, templates and
-docs:
-
-```sh
-grep -rl 'github.com/tobibamidele/lathe' . | xargs sed -i 's#github.com/tobibamidele/lathe#github.com/you/newname#g'
-git mv cmd/lathe cmd/newname
-```
-
 Generated code embeds the runtime import path, so regenerate after renaming.
