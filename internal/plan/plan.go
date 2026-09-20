@@ -124,7 +124,8 @@ func Diff(old, cur *schema.Snapshot, d ddl.Dialect) (*Plan, error) {
 		}
 		if d.CanAlterForeignKeys() {
 			for _, fk := range ch.fkDrops {
-				dropFKs = append(dropFKs, ddl.DropForeignKey{Table: nt.Name, FK: fk})
+				// dropped before table renames run, so under the old name
+				dropFKs = append(dropFKs, ddl.DropForeignKey{Table: ot.Name, FK: fk})
 			}
 			for _, fk := range ch.fkAdds {
 				addFKs = append(addFKs, ddl.AddForeignKey{Table: nt.Name, FK: fk})
@@ -135,17 +136,25 @@ func Diff(old, cur *schema.Snapshot, d ddl.Dialect) (*Plan, error) {
 		}
 	}
 
+	// Order matters, and the reverse plan (the down migration) inherits it:
+	//  1. drop foreign keys that stop existing, so nothing blocks step 2 and 5
+	//  2. drop removed tables, before renames: recreating them on the way down
+	//     must happen after a renamed table has its old name back
+	//  3. rename tables
+	//  4. create new tables, referenced tables first
+	//  5. alter existing tables
+	//  6. add new foreign keys, once every column and index they need exists
 	var steps []ddl.Step
-	steps = append(steps, renames...)
 	steps = append(steps, dropFKs...)
-	steps = append(steps, createSteps(created, d)...)
-	steps = append(steps, alters...)
-	steps = append(steps, addFKs...)
 	// Dropping tables is the mirror image of creating them.
 	drops := createSteps(dropped, d)
 	for i := len(drops) - 1; i >= 0; i-- {
 		steps = append(steps, drops[i].Inverse())
 	}
+	steps = append(steps, renames...)
+	steps = append(steps, createSteps(created, d)...)
+	steps = append(steps, alters...)
+	steps = append(steps, addFKs...)
 	return &Plan{Steps: steps}, nil
 }
 

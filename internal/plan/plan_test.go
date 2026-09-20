@@ -362,3 +362,48 @@ func TestWideningIsNotAWarning(t *testing.T) {
 		t.Errorf("want 5 warnings for narrowing changes, got %v", p.Warnings())
 	}
 }
+
+// Dropping a table that references a table which is renamed in the same
+// migration: the down migration must undo the rename before it recreates the
+// dropped table, whose foreign key names the old table name.
+func TestDownRestoresRenamedTargetBeforeRecreatingDroppedTable(t *testing.T) {
+	for _, dialect := range []s.Dialect{s.Postgres, s.MySQL, s.SQLite} {
+		t.Run(string(dialect), func(t *testing.T) {
+			old := snap(t, dialect,
+				s.Table("tags", s.Int("id").PrimaryKey()),
+				s.Table("post_tags", s.Int("tag_id").PrimaryKey().References("tags", "id")),
+			)
+			cur := snap(t, dialect, s.Table("labels", s.Int("id").PrimaryKey()).RenamedFrom("tags"))
+			p, d := diff(t, old, cur)
+			upSQL := up(t, p, d)
+			if strings.Index(upSQL, "DROP TABLE") > strings.Index(upSQL, "RENAME") {
+				t.Errorf("the table must be dropped before the rename:\n%s", upSQL)
+			}
+			dn := down(t, p, d)
+			back := strings.Index(dn, "RENAME")
+			recreate := strings.Index(dn, "CREATE TABLE "+d.Quote("post_tags"))
+			if back < 0 || recreate < 0 || back > recreate {
+				t.Errorf("rename must be undone before post_tags is recreated:\n%s", dn)
+			}
+		})
+	}
+}
+
+func TestForeignKeyDropUsesPreRenameTableName(t *testing.T) {
+	old := snap(t, s.Postgres,
+		s.Table("u", s.Int("id").PrimaryKey()),
+		s.Table("a", s.Int("id").PrimaryKey(), s.Int("u_id").References("u", "id")),
+	)
+	cur := snap(t, s.Postgres,
+		s.Table("u", s.Int("id").PrimaryKey()),
+		s.Table("b", s.Int("id").PrimaryKey(), s.Int("u_id")).RenamedFrom("a"),
+	)
+	p, d := diff(t, old, cur)
+	got := up(t, p, d)
+	if strings.Index(got, `ALTER TABLE "a" DROP CONSTRAINT`) < 0 {
+		t.Errorf("the FK must be dropped from the table under its old name:\n%s", got)
+	}
+	if strings.Index(got, `DROP CONSTRAINT`) > strings.Index(got, `RENAME TO "b"`) {
+		t.Errorf("FK drop must precede the rename:\n%s", got)
+	}
+}
