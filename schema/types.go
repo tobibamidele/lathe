@@ -4,6 +4,10 @@
 // this package. The lathe CLI loads that description, turns it into a
 // [Snapshot] (a plain, JSON-serialisable value), and uses the snapshot to
 // generate Go code and SQL migrations.
+//
+// Every column constructor returns a *ColumnBuilder parameterised by the
+// column's Go type. Use [ColumnBuilder.DefaultFunc] for a default whose type
+// the compiler checks against the column.
 package schema
 
 import (

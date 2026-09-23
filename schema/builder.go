@@ -8,6 +8,10 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/shopspring/decimal"
 )
 
 // Config controls how lathe treats a schema.
@@ -58,7 +62,7 @@ type TableBuilder struct {
 	name        string
 	model       string
 	renamedFrom string
-	cols        []*ColumnBuilder
+	cols        []Column
 	pk          []string
 	pkDeclared  bool
 	indexes     []*IndexBuilder
@@ -102,8 +106,23 @@ func (t *TableBuilder) RenamedFrom(old string) *TableBuilder { t.renamedFrom = o
 
 // ---- columns ----
 
-// ColumnBuilder builds a [ColumnDef].
-type ColumnBuilder struct {
+// Column is anything that can appear inside [Table] as a column. Every kind has
+// its own typed [ColumnBuilder]: Text returns *ColumnBuilder[string], BigInt
+// returns *ColumnBuilder[int64], UUID returns *ColumnBuilder[uuid.UUID], and so
+// on. The type parameter is the column's Go type and lets type-checked methods
+// such as [ColumnBuilder.DefaultFunc] reject values that do not fit the column.
+type Column interface {
+	applyTo(*TableBuilder)
+	column() *ColumnDef
+	isPK() bool
+	isUnique() bool
+	isIndex() bool
+	foreignKey() *ForeignKeyBuilder
+	buildErrors() []error
+}
+
+// ColumnBuilder builds a [ColumnDef]. V is the column's Go type.
+type ColumnBuilder[V any] struct {
 	col      ColumnDef
 	pk       bool
 	unique   bool
@@ -112,93 +131,112 @@ type ColumnBuilder struct {
 	buildErr []error
 }
 
-func newCol(name string, t Type) *ColumnBuilder {
-	return &ColumnBuilder{col: ColumnDef{Name: name, Type: t}}
+func newCol[V any](name string, t Type) *ColumnBuilder[V] {
+	return &ColumnBuilder[V]{col: ColumnDef{Name: name, Type: t}}
 }
 
-func (c *ColumnBuilder) applyTo(t *TableBuilder) { t.cols = append(t.cols, c) }
+func (c *ColumnBuilder[V]) applyTo(t *TableBuilder) { t.cols = append(t.cols, c) }
+
+func (c *ColumnBuilder[V]) column() *ColumnDef             { return &c.col }
+func (c *ColumnBuilder[V]) isPK() bool                     { return c.pk }
+func (c *ColumnBuilder[V]) isUnique() bool                 { return c.unique }
+func (c *ColumnBuilder[V]) isIndex() bool                  { return c.index }
+func (c *ColumnBuilder[V]) foreignKey() *ForeignKeyBuilder { return c.ref }
+func (c *ColumnBuilder[V]) buildErrors() []error           { return c.buildErr }
 
 // SmallInt declares a 16-bit integer column.
-func SmallInt(name string) *ColumnBuilder { return newCol(name, Type{Kind: KindSmallInt}) }
+func SmallInt(name string) *ColumnBuilder[int16] {
+	return newCol[int16](name, Type{Kind: KindSmallInt})
+}
 
 // Int declares a 32-bit integer column.
-func Int(name string) *ColumnBuilder { return newCol(name, Type{Kind: KindInt}) }
+func Int(name string) *ColumnBuilder[int32] { return newCol[int32](name, Type{Kind: KindInt}) }
 
 // BigInt declares a 64-bit integer column.
-func BigInt(name string) *ColumnBuilder { return newCol(name, Type{Kind: KindBigInt}) }
+func BigInt(name string) *ColumnBuilder[int64] { return newCol[int64](name, Type{Kind: KindBigInt}) }
 
 // Real declares a single precision float column.
-func Real(name string) *ColumnBuilder { return newCol(name, Type{Kind: KindReal}) }
+func Real(name string) *ColumnBuilder[float32] { return newCol[float32](name, Type{Kind: KindReal}) }
 
 // Double declares a double precision float column.
-func Double(name string) *ColumnBuilder { return newCol(name, Type{Kind: KindDouble}) }
+func Double(name string) *ColumnBuilder[float64] {
+	return newCol[float64](name, Type{Kind: KindDouble})
+}
 
 // Decimal declares an exact numeric column. It maps to decimal.Decimal
 // (github.com/shopspring/decimal) in generated code.
 //
 // SQLite has no exact numeric type: values are stored with NUMERIC affinity,
 // which is exact for about 15 significant digits.
-func Decimal(name string, precision, scale int) *ColumnBuilder {
-	return newCol(name, Type{Kind: KindDecimal, Precision: precision, Scale: scale})
+func Decimal(name string, precision, scale int) *ColumnBuilder[decimal.Decimal] {
+	return newCol[decimal.Decimal](name, Type{Kind: KindDecimal, Precision: precision, Scale: scale})
 }
 
 // Money declares a monetary amount: DECIMAL(19, 4), generated as
 // decimal.Decimal. Store the currency in a separate column.
-func Money(name string) *ColumnBuilder { return Decimal(name, 19, 4) }
+func Money(name string) *ColumnBuilder[decimal.Decimal] { return Decimal(name, 19, 4) }
 
 // Bool declares a boolean column.
-func Bool(name string) *ColumnBuilder { return newCol(name, Type{Kind: KindBool}) }
+func Bool(name string) *ColumnBuilder[bool] { return newCol[bool](name, Type{Kind: KindBool}) }
 
 // VarChar declares a bounded string column.
-func VarChar(name string, length int) *ColumnBuilder {
-	return newCol(name, Type{Kind: KindVarChar, Length: length})
+func VarChar(name string, length int) *ColumnBuilder[string] {
+	return newCol[string](name, Type{Kind: KindVarChar, Length: length})
 }
 
 // Text declares an unbounded string column.
-func Text(name string) *ColumnBuilder { return newCol(name, Type{Kind: KindText}) }
+func Text(name string) *ColumnBuilder[string] { return newCol[string](name, Type{Kind: KindText}) }
 
 // UUID declares a UUID column, generated as uuid.UUID (github.com/google/uuid).
-func UUID(name string) *ColumnBuilder { return newCol(name, Type{Kind: KindUUID}) }
+func UUID(name string) *ColumnBuilder[uuid.UUID] {
+	return newCol[uuid.UUID](name, Type{Kind: KindUUID})
+}
 
 // Timestamp declares a point-in-time column (timestamptz on PostgreSQL,
 // DATETIME(6) on MySQL, DATETIME on SQLite), generated as time.Time.
-func Timestamp(name string) *ColumnBuilder { return newCol(name, Type{Kind: KindTimestamp}) }
+func Timestamp(name string) *ColumnBuilder[time.Time] {
+	return newCol[time.Time](name, Type{Kind: KindTimestamp})
+}
 
 // Date declares a calendar date column, generated as time.Time.
-func Date(name string) *ColumnBuilder { return newCol(name, Type{Kind: KindDate}) }
+func Date(name string) *ColumnBuilder[time.Time] {
+	return newCol[time.Time](name, Type{Kind: KindDate})
+}
 
-// JSON declares a JSON document column, generated as lathe.JSON.
-func JSON(name string) *ColumnBuilder { return newCol(name, Type{Kind: KindJSON}) }
+// JSON declares a JSON document column, generated as lathe.JSON. Its default
+// value is expressed as JSON text, so DefaultFunc on a JSON column returns a
+// string holding valid JSON.
+func JSON(name string) *ColumnBuilder[string] { return newCol[string](name, Type{Kind: KindJSON}) }
 
 // Bytes declares a binary column, generated as []byte.
-func Bytes(name string) *ColumnBuilder { return newCol(name, Type{Kind: KindBytes}) }
+func Bytes(name string) *ColumnBuilder[[]byte] { return newCol[[]byte](name, Type{Kind: KindBytes}) }
 
 // Enum declares a column restricted to the given string values. Generated code
 // gets a named string type with a constant per value.
-func Enum(name string, values ...string) *ColumnBuilder {
-	return newCol(name, Type{Kind: KindEnum, Values: append([]string(nil), values...)})
+func Enum(name string, values ...string) *ColumnBuilder[string] {
+	return newCol[string](name, Type{Kind: KindEnum, Values: append([]string(nil), values...)})
 }
 
 // PrimaryKey marks the column as (part of) the primary key.
-func (c *ColumnBuilder) PrimaryKey() *ColumnBuilder { c.pk = true; return c }
+func (c *ColumnBuilder[V]) PrimaryKey() *ColumnBuilder[V] { c.pk = true; return c }
 
 // Nullable allows NULL. Columns are NOT NULL unless declared otherwise, and
 // nullable columns are generated as pointers.
-func (c *ColumnBuilder) Nullable() *ColumnBuilder { c.col.Nullable = true; return c }
+func (c *ColumnBuilder[V]) Nullable() *ColumnBuilder[V] { c.col.Nullable = true; return c }
 
 // AutoIncrement makes the database assign increasing integers. The column must
 // be an integer and the table's only primary key column.
-func (c *ColumnBuilder) AutoIncrement() *ColumnBuilder { c.col.AutoIncrement = true; return c }
+func (c *ColumnBuilder[V]) AutoIncrement() *ColumnBuilder[V] { c.col.AutoIncrement = true; return c }
 
 // Unique adds a unique index on this column.
-func (c *ColumnBuilder) Unique() *ColumnBuilder { c.unique = true; return c }
+func (c *ColumnBuilder[V]) Unique() *ColumnBuilder[V] { c.unique = true; return c }
 
 // Index adds a plain index on this column.
-func (c *ColumnBuilder) Index() *ColumnBuilder { c.index = true; return c }
+func (c *ColumnBuilder[V]) Index() *ColumnBuilder[V] { c.index = true; return c }
 
 // Default sets a constant default. Accepts strings, bools, integers, floats and
 // fmt.Stringer values such as decimal.Decimal.
-func (c *ColumnBuilder) Default(v any) *ColumnBuilder {
+func (c *ColumnBuilder[V]) Default(v any) *ColumnBuilder[V] {
 	d, err := literalDefault(v)
 	if err != nil {
 		c.buildErr = append(c.buildErr, fmt.Errorf("column %q: %w", c.col.Name, err))
@@ -209,33 +247,56 @@ func (c *ColumnBuilder) Default(v any) *ColumnBuilder {
 }
 
 // DefaultNow defaults to the current time.
-func (c *ColumnBuilder) DefaultNow() *ColumnBuilder {
+func (c *ColumnBuilder[V]) DefaultNow() *ColumnBuilder[V] {
 	c.col.Default = &Default{Kind: DefaultNow}
 	return c
 }
 
 // DefaultUUID defaults to a random UUID generated by the database.
-func (c *ColumnBuilder) DefaultUUID() *ColumnBuilder {
+func (c *ColumnBuilder[V]) DefaultUUID() *ColumnBuilder[V] {
 	c.col.Default = &Default{Kind: DefaultUUID}
 	return c
 }
 
 // DefaultExpr defaults to a raw SQL expression. It is emitted verbatim, so it
 // is not portable across dialects.
-func (c *ColumnBuilder) DefaultExpr(sql string) *ColumnBuilder {
+func (c *ColumnBuilder[V]) DefaultExpr(sql string) *ColumnBuilder[V] {
 	c.col.Default = &Default{Kind: DefaultExpr, Value: sql}
 	return c
 }
 
+// DefaultFunc sets a server-side default computed by f. It is the type-checked
+// sibling of [ColumnBuilder.Default]: f must return the column's Go type (a
+// string for Text and VarChar, uuid.UUID for UUID, int64 for BigInt, and so
+// on), so a mismatched default is a compile error.
+//
+//	f := generateSomeValue
+//	s.Text("some").PrimaryKey().DefaultFunc(f)
+//
+// f is called once while the schema is being declared and the value is baked as
+// a literal default, exactly as if it had been passed to Default. f must
+// therefore be stable: each schema load produces a fresh value, so a random
+// generator changes the default on every regen. Use DefaultUUID for per-row
+// random UUIDs.
+func (c *ColumnBuilder[V]) DefaultFunc(f func() V) *ColumnBuilder[V] {
+	d, err := literalDefault(f())
+	if err != nil {
+		c.buildErr = append(c.buildErr, fmt.Errorf("column %q: %w", c.col.Name, err))
+		return c
+	}
+	c.col.Default = d
+	return c
+}
+
 // References adds a single column foreign key to table(column).
-func (c *ColumnBuilder) References(table, column string) *ColumnBuilder {
+func (c *ColumnBuilder[V]) References(table, column string) *ColumnBuilder[V] {
 	c.ref = &ForeignKeyBuilder{fk: ForeignKeyDef{Columns: []string{c.col.Name}, RefTable: table, RefColumns: []string{column}}}
 	return c
 }
 
 // OnDelete sets the referential action for deletes of the referenced row.
 // It must follow References.
-func (c *ColumnBuilder) OnDelete(a Action) *ColumnBuilder {
+func (c *ColumnBuilder[V]) OnDelete(a Action) *ColumnBuilder[V] {
 	if c.ref == nil {
 		c.buildErr = append(c.buildErr, fmt.Errorf("column %q: OnDelete requires References", c.col.Name))
 		return c
@@ -246,7 +307,7 @@ func (c *ColumnBuilder) OnDelete(a Action) *ColumnBuilder {
 
 // OnUpdate sets the referential action for updates of the referenced key.
 // It must follow References.
-func (c *ColumnBuilder) OnUpdate(a Action) *ColumnBuilder {
+func (c *ColumnBuilder[V]) OnUpdate(a Action) *ColumnBuilder[V] {
 	if c.ref == nil {
 		c.buildErr = append(c.buildErr, fmt.Errorf("column %q: OnUpdate requires References", c.col.Name))
 		return c
@@ -259,7 +320,7 @@ func (c *ColumnBuilder) OnUpdate(a Action) *ColumnBuilder {
 // the field on this table's model (belongs-to, for example "Author"), reverse
 // the field on the referenced table's model (for example "Posts"). Use "" to
 // keep the derived name and "-" to skip that side. It must follow References.
-func (c *ColumnBuilder) Relation(forward, reverse string) *ColumnBuilder {
+func (c *ColumnBuilder[V]) Relation(forward, reverse string) *ColumnBuilder[V] {
 	if c.ref == nil {
 		c.buildErr = append(c.buildErr, fmt.Errorf("column %q: Relation requires References", c.col.Name))
 		return c
@@ -269,11 +330,14 @@ func (c *ColumnBuilder) Relation(forward, reverse string) *ColumnBuilder {
 }
 
 // Field overrides the generated Go field name.
-func (c *ColumnBuilder) Field(name string) *ColumnBuilder { c.col.Field = name; return c }
+func (c *ColumnBuilder[V]) Field(name string) *ColumnBuilder[V] { c.col.Field = name; return c }
 
 // RenamedFrom tells the migration planner that this column used to be called
 // old. Remove the call once the migration has been generated.
-func (c *ColumnBuilder) RenamedFrom(old string) *ColumnBuilder { c.col.RenamedFrom = old; return c }
+func (c *ColumnBuilder[V]) RenamedFrom(old string) *ColumnBuilder[V] {
+	c.col.RenamedFrom = old
+	return c
+}
 
 func literalDefault(v any) (*Default, error) {
 	switch x := v.(type) {
@@ -423,11 +487,11 @@ func (tb *TableBuilder) build() (*TableDef, error) {
 
 	var pk []string
 	for _, cb := range tb.cols {
-		for _, e := range cb.buildErr {
+		for _, e := range cb.buildErrors() {
 			errs = append(errs, errors.New(prefix+e.Error()))
 		}
-		c := cb.col
-		if cb.pk {
+		c := *cb.column()
+		if cb.isPK() {
 			pk = append(pk, c.Name)
 			c.Nullable = false
 		}
@@ -448,17 +512,18 @@ func (tb *TableBuilder) build() (*TableDef, error) {
 	}
 
 	for _, cb := range tb.cols {
-		name := cb.col.Name
-		if cb.unique {
+		c := cb.column()
+		name := c.Name
+		if cb.isUnique() {
 			t.Indexes = append(t.Indexes, &IndexDef{Name: AutoName("uq", tb.name, name), Columns: []string{name}, Unique: true})
 		}
-		if cb.index {
+		if cb.isIndex() {
 			t.Indexes = append(t.Indexes, &IndexDef{Name: AutoName("idx", tb.name, name), Columns: []string{name}})
 		}
-		if cb.ref != nil {
-			fk := cb.ref.fk
-			fk.Name = AutoName("fk", tb.name, name)
-			t.ForeignKeys = append(t.ForeignKeys, &fk)
+		if fk := cb.foreignKey(); fk != nil {
+			f := fk.fk
+			f.Name = AutoName("fk", tb.name, name)
+			t.ForeignKeys = append(t.ForeignKeys, &f)
 		}
 	}
 	for _, ib := range tb.indexes {

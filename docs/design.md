@@ -74,6 +74,14 @@ database knows cannot be read back. Generated code fills a zero UUID with
 `uuid.New()`; `Create` returns a clear error for the remaining unreadable case
 (a database-generated non-auto primary key on MySQL).
 
+**`DefaultFunc` is a type-checked literal.** Every column constructor returns a
+generic `*ColumnBuilder[T]` where `T` is the column's Go type, so
+`DefaultFunc(fn)` only accepts `func() T` and a mismatched default is a compile
+error. `fn` runs once while the schema is declared and its value is baked as a
+server-side literal default (identical to `Default`), so generators must be
+stable -- a per-schema-load value, not a per-row one. Bytes columns (no literal
+form) reject `DefaultFunc` with a build error.
+
 **Relations are derived, batched and cycle-free.** They come from foreign keys, so
 the schema stays the single source of truth. Each is a `Relation[Source, Target]`
 holding a loader closure; `With` runs them after the main query. A loader

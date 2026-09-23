@@ -4,6 +4,10 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/shopspring/decimal"
 
 	s "github.com/tobibamidele/lathe/schema"
 )
@@ -109,6 +113,81 @@ func TestValidationErrors(t *testing.T) {
 				t.Fatalf("want error containing %q, got %v", tc.want, err)
 			}
 		})
+	}
+}
+
+func TestDefaultFuncBakesValue(t *testing.T) {
+	calls := 0
+	exp, err := s.New(s.Config{Dialect: s.Postgres},
+		s.Table("t",
+			s.Text("slug").PrimaryKey().DefaultFunc(func() string { calls++; return "hello" }),
+			s.BigInt("seq").DefaultFunc(func() int64 { return 42 }),
+			s.UUID("uid").DefaultFunc(func() uuid.UUID {
+				return uuid.MustParse("00000000-0000-0000-0000-000000000001")
+			}),
+			s.Decimal("price", 10, 2).DefaultFunc(func() decimal.Decimal {
+				return decimal.NewFromInt(15).Div(decimal.NewFromInt(10))
+			}),
+			s.Bool("active").DefaultFunc(func() bool { return true }),
+			s.Enum("role", "admin", "member").DefaultFunc(func() string { return "member" }),
+			s.JSON("meta").DefaultFunc(func() string { return `{"ok":true}` }),
+			s.Timestamp("at").DefaultFunc(func() time.Time {
+				return time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+			}),
+		)).Export()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Errorf("DefaultFunc ran %d times at declaration, want 1", calls)
+	}
+
+	lit := func(col string) *s.Default {
+		d := exp.Snapshot.Table("t").Column(col).Default
+		if d == nil {
+			t.Fatalf("column %q has no default", col)
+		}
+		return d
+	}
+	literal := func(col string, wantLit s.LiteralKind, wantVal string) {
+		t.Helper()
+		if d := lit(col); d.Kind != s.DefaultLiteral || d.Lit != wantLit || d.Value != wantVal {
+			t.Errorf("column %q default = %+v, want literal %s %q", col, d, wantLit, wantVal)
+		}
+	}
+	literal("slug", s.LitString, "hello")
+	literal("seq", s.LitNumber, "42")
+	literal("uid", s.LitString, "00000000-0000-0000-0000-000000000001")
+	literal("price", s.LitNumber, "1.5")
+	literal("active", s.LitBool, "true")
+	literal("role", s.LitString, "member")
+	literal("meta", s.LitString, `{"ok":true}`)
+	literal("at", s.LitString, "2026-01-02 03:04:05 +0000 UTC")
+}
+
+func TestDefaultFuncTakesPrecedenceLikeOtherDefaults(t *testing.T) {
+	exp, err := s.New(s.Config{Dialect: s.SQLite},
+		s.Table("t",
+			s.Text("a").PrimaryKey().Default("x").DefaultFunc(func() string { return "y" }),
+			s.Text("b").DefaultFunc(func() string { return "y" }).Default("x"),
+		)).Export()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := exp.Snapshot.Table("t").Column("a").Default.Value; got != "y" {
+		t.Errorf("Default then DefaultFunc: got %q, want y", got)
+	}
+	if got := exp.Snapshot.Table("t").Column("b").Default.Value; got != "x" {
+		t.Errorf("DefaultFunc then Default: got %q, want x", got)
+	}
+}
+
+func TestDefaultFuncUnsupportedResult(t *testing.T) {
+	_, err := s.New(s.Config{Dialect: s.SQLite},
+		s.Table("t", s.Bytes("b").PrimaryKey().DefaultFunc(func() []byte { return []byte("x") })),
+	).Export()
+	if err == nil || !strings.Contains(err.Error(), "unsupported default value") {
+		t.Fatalf("want unsupported default value error, got %v", err)
 	}
 }
 

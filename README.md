@@ -131,11 +131,23 @@ become pointers in the generated struct (`Bio *string`).
 ### Modifiers
 
 `PrimaryKey()`, `Nullable()`, `AutoIncrement()`, `Unique()`, `Index()`,
-`Default(v)`, `DefaultNow()`, `DefaultUUID()`, `DefaultExpr(sql)`,
-`References(table, column)` with `OnDelete(...)` / `OnUpdate(...)` and
-`Relation(forward, reverse)` (see [Relations](#relations)), `Field(name)`
-(override the Go field name) and `RenamedFrom(old)` (see
+`Default(v)`, `DefaultFunc(fn)`, `DefaultNow()`, `DefaultUUID()`,
+`DefaultExpr(sql)`, `References(table, column)` with `OnDelete(...)` /
+`OnUpdate(...)` and `Relation(forward, reverse)` (see [Relations](#relations)),
+`Field(name)` (override the Go field name) and `RenamedFrom(old)` (see
 [renames](#renames)).
+
+`DefaultFunc` is the type-checked sibling of `Default`: the function must
+return exactly the column's Go type, so a mismatch is a compile error.
+
+```go
+s.VarChar("slug", 200).PrimaryKey().DefaultFunc(makeSlug) // func() string
+s.BigInt("seq").DefaultFunc(nextSeq)                      // func() int64
+```
+
+`fn` runs once while the schema is being declared and its value is baked as a
+literal default, so use a stable generator (`DefaultUUID()` still gives you a
+fresh random UUID per row).
 
 Table level: `s.Index(cols...)`, `s.UniqueIndex(cols...)`,
 `s.PrimaryKey(cols...)` for composite keys, `s.ForeignKey(cols...).References(table, cols...)`
