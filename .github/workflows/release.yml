@@ -1,0 +1,48 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - name: embed version and build binaries
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          sha="${GITHUB_SHA:0:7}"
+          mkdir -p dist
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
+            os="${target%/*}"
+            arch="${target#*/}"
+            ext=""
+            [ "$os" = windows ] && ext=".exe"
+            out="lathe-${tag}-${os}-${arch}${ext}"
+            GOOS="$os" GOARCH="$arch" go build -trimpath \
+              -ldflags "-X github.com/tobibamidele/lathe/internal/cli.Version=${tag} -X github.com/tobibamidele/lathe/internal/cli.Revision=${sha}" \
+              -o "dist/${out}" ./cmd/lathe
+          done
+
+      - name: verify the embedded version
+        run: |
+          ./dist/lathe-${GITHUB_REF_NAME}-linux-amd64 version | grep -E "lathe ${GITHUB_REF_NAME} \(" || exit 1
+
+      - name: checksums
+        run: |
+          (cd dist && sha256sum * > SHA256SUMS)
+
+      - name: draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*

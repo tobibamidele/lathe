@@ -6,8 +6,9 @@
 // generate Go code and SQL migrations.
 //
 // Every column constructor returns a *ColumnBuilder parameterised by the
-// column's Go type. Use [ColumnBuilder.DefaultFunc] for a default whose type
-// the compiler checks against the column.
+// column's Go type. Use [ColumnBuilder.DefaultFunc] to supply the column's
+// value per insert from an exported function in this package, with the type
+// checked against the column.
 package schema
 
 import (
@@ -137,6 +138,12 @@ type ColumnDef struct {
 	Nullable      bool     `json:"nullable,omitempty"`
 	Default       *Default `json:"default,omitempty"`
 	AutoIncrement bool     `json:"autoIncrement,omitempty"`
+
+	// DefaultFunc names a package-level function in the schema package that
+	// supplies the column's value per insert, in Go. It is a code generation
+	// hint only: the column has no server-side default. Written as the fully
+	// qualified name, e.g. "example.com/internal/schema.GenerateID".
+	DefaultFunc string `json:"defaultFunc,omitempty"`
 
 	// Field overrides the generated Go field name.
 	Field string `json:"field,omitempty"`

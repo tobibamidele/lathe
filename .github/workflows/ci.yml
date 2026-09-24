@@ -17,6 +17,7 @@ jobs:
           go-version: ${{ matrix.go }}
       - run: make fmt-check vet
       - run: make test
+      - run: make version | grep -Ev "lathe dev( |$)"
 
   e2e:
     runs-on: ubuntu-latest

@@ -41,6 +41,13 @@ go get github.com/tobibamidele/lathe@latest
 lathe init --dialect postgres             # writes schema/schema.go
 ```
 
+`lathe version` prints the version and, when available, the git commit it was
+built from. Release binaries and `make build` embed both. An installed
+`go install ...@v0.3.0` binary reports the tag (from the go toolchain's build
+info) but usually no commit sha, because the module proxy ships no `.git`;
+building from a local checkout reattaches the sha. `make install` embeds both
+from your checkout's nearest tag and `HEAD`.
+
 Edit `schema/schema.go`. It is ordinary Go, so you get autocomplete, compile
 errors and the ability to use variables, loops and conditionals:
 
@@ -138,16 +145,21 @@ become pointers in the generated struct (`Bio *string`).
 [renames](#renames)).
 
 `DefaultFunc` is the type-checked sibling of `Default`: the function must
-return exactly the column's Go type, so a mismatch is a compile error.
+return exactly the column's Go type, so a mismatch is a compile error. It must
+be a package-level **exported** function (`GenerateSlug`, not `generateSlug`)
+because the generated package calls it directly:
 
 ```go
-s.VarChar("slug", 200).PrimaryKey().DefaultFunc(makeSlug) // func() string
-s.BigInt("seq").DefaultFunc(nextSeq)                      // func() int64
+s.VarChar("slug", 200).PrimaryKey().DefaultFunc(GenerateSlug) // func() string
+s.BigInt("seq").DefaultFunc(GenerateSeq)                      // func() int64
 ```
 
-`fn` runs once while the schema is being declared and its value is baked as a
-literal default, so use a stable generator (`DefaultUUID()` still gives you a
-fresh random UUID per row).
+`DefaultFunc` is a *client-side* default. The column gets no server-side `DEFAULT`
+clause; generated code calls the function on every insert when the field still
+holds its zero value, so it is free to return a fresh value each time - exactly
+what a random primary key factory like
+`generateProjectID() { return "proj_" + uuid.NewString() }` needs. For a random
+UUID the shorthand is `s.UUID("id").PrimaryKey().DefaultFunc(uuid.NewString)`.
 
 Table level: `s.Index(cols...)`, `s.UniqueIndex(cols...)`,
 `s.PrimaryKey(cols...)` for composite keys, `s.ForeignKey(cols...).References(table, cols...)`
@@ -176,6 +188,12 @@ bool or number default from the database, make the column `Nullable()` and
 leave the pointer nil. UUID defaults are generated in Go (`uuid.New()`) when
 the field is zero, so the value is known on every dialect, and the column keeps
 its database default for rows inserted by other tools.
+
+A `DefaultFunc` field is always sent once its function has run, so the value is
+known in Go on every dialect too - but there is no database default to fall
+back on for rows written by other tools. It participates in plain `Create`,
+`CreateMany` and `Upsert`, which all fill zero fields before building the
+`INSERT`.
 
 ## Querying
 

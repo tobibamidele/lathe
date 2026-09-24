@@ -6,6 +6,7 @@ import (
 	"embed"
 	"fmt"
 	"go/format"
+	"path"
 	"sort"
 	"strconv"
 	"strings"
@@ -184,8 +185,12 @@ func buildViews(exp *schema.Export) ([]*tableView, error) {
 				GoType: goT, BaseType: base,
 				PrimaryKey: t.IsPrimaryKey(c.Name), AutoIncrement: c.AutoIncrement,
 				OmitZero: omitZero(c),
-				Init:     clientDefault(c, model, name),
 			}
+			init, imp := clientDefault(c, model, name)
+			if imp != "" {
+				imports[imp] = true
+			}
+			f.Init = init
 			v.Fields = append(v.Fields, f)
 			if f.PrimaryKey {
 				v.PrimaryKey = append(v.PrimaryKey, f)
@@ -307,18 +312,62 @@ func omitZero(c *schema.ColumnDef) bool {
 	return c.Type.Kind != schema.KindBool && !c.Type.Kind.IsNumeric()
 }
 
-// clientDefault returns a func literal that fills a zero UUID with a random
-// one in Go. UUID defaults are generated client-side because MySQL cannot
-// return a database generated key after INSERT; the column keeps its database
-// default for rows inserted by other means.
-func clientDefault(c *schema.ColumnDef, model, field string) string {
+// clientDefault returns a func literal that fills a zero column in Go before
+// INSERT, and the extra import the generated code needs, if any.
+//
+// UUID defaults are generated client-side because MySQL cannot return a
+// database generated key after INSERT; the column keeps its database default
+// for rows inserted by other means. Columns with a DefaultFunc take their value
+// from the named package-level function in the user's schema package, which the
+// generated package imports.
+func clientDefault(c *schema.ColumnDef, model, field string) (string, string) {
+	if c.DefaultFunc != "" {
+		i := strings.LastIndex(c.DefaultFunc, ".")
+		imp, fn := c.DefaultFunc[:i], c.DefaultFunc[i+1:]
+		alias := path.Base(imp)
+		if goKeywords[alias] || alias == lowerFirst(model)+"Spec" {
+			alias += "Pkg"
+		}
+		return funcDefaultInit(c, model, field, alias+"."+fn), fmt.Sprintf("%s %q", alias, imp)
+	}
 	if c.Default == nil || c.Default.Kind != schema.DefaultUUID || c.Type.Kind != schema.KindUUID {
-		return ""
+		return "", ""
 	}
 	if c.Nullable {
-		return fmt.Sprintf("func(m *%s) { if m.%s == nil { v := uuid.New(); m.%s = &v } }", model, field, field)
+		return fmt.Sprintf("func(m *%s) { if m.%s == nil { v := uuid.New(); m.%s = &v } }", model, field, field), ""
 	}
-	return fmt.Sprintf("func(m *%s) { if m.%s == uuid.Nil { m.%s = uuid.New() } }", model, field, field)
+	return fmt.Sprintf("func(m *%s) { if m.%s == uuid.Nil { m.%s = uuid.New() } }", model, field, field), ""
+}
+
+// funcDefaultInit builds a func literal that fills a zero column by calling the
+// schema package function call (e.g. "schema.GenerateID").
+func funcDefaultInit(c *schema.ColumnDef, model, field, call string) string {
+	if c.Nullable && c.Type.Kind != schema.KindJSON {
+		if c.Type.Kind == schema.KindEnum {
+			return fmt.Sprintf("func(m *%s) { if m.%s == nil { v := %s(%s()); m.%s = &v } }", model, field, model+field, call, field)
+		}
+		return fmt.Sprintf("func(m *%s) { if m.%s == nil { v := %s(); m.%s = &v } }", model, field, call, field)
+	}
+	var test, set string
+	switch c.Type.Kind {
+	case schema.KindUUID:
+		test, set = fmt.Sprintf("m.%s == uuid.Nil", field), call+"()"
+	case schema.KindTimestamp, schema.KindDate, schema.KindDecimal:
+		test, set = fmt.Sprintf("m.%s.IsZero()", field), call+"()"
+	case schema.KindJSON:
+		test, set = fmt.Sprintf("len(m.%s) == 0", field), "lathe.JSON("+call+"())"
+	case schema.KindBytes:
+		test, set = fmt.Sprintf("m.%s == nil", field), call+"()"
+	case schema.KindBool:
+		test, set = fmt.Sprintf("!m.%s", field), call+"()"
+	case schema.KindEnum:
+		test, set = fmt.Sprintf("m.%s == \"\"", field), fmt.Sprintf("%s(%s())", model+field, call)
+	case schema.KindVarChar, schema.KindText:
+		test, set = fmt.Sprintf("m.%s == \"\"", field), call+"()"
+	default: // integers and floats
+		test, set = fmt.Sprintf("m.%s == 0", field), call+"()"
+	}
+	return fmt.Sprintf("func(m *%s) { if %s { m.%s = %s } }", model, test, field, set)
 }
 
 func lowerFirst(s string) string {

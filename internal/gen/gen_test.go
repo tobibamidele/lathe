@@ -101,6 +101,54 @@ func TestGeneratedShape(t *testing.T) {
 	}
 }
 
+func TestDefaultFuncGenerated(t *testing.T) {
+	exp := export(t, s.Table("widgets",
+		s.Text("id").PrimaryKey(),
+		s.UUID("uid"),
+		s.Decimal("amount", 10, 2),
+		s.JSON("meta").Nullable(),
+		s.Enum("kind", "a", "b"),
+		s.BigInt("seq"),
+		s.Timestamp("at"),
+	))
+	// the builder would capture the real qualified name of a func in the user's
+	// schema package; simulating that snapshot-level field is what generated
+	// code actually sees
+	w := exp.Snapshot.Table("widgets")
+	gens := map[string]string{
+		"id": "GenerateID", "uid": "GenerateUID", "amount": "GenerateAmount",
+		"meta": "GenerateMeta", "kind": "GenerateKind", "seq": "GenerateSeq", "at": "GenerateAt",
+	}
+	for col, fn := range gens {
+		w.Column(col).DefaultFunc = "github.com/acme/schema." + fn
+	}
+	src := generate(t, exp)["widgets.gen.go"]
+	for _, want := range []string{
+		`schema "github.com/acme/schema"`,
+		`if m.ID == "" {`,
+		`m.ID = schema.GenerateID()`,
+		`if m.UID == uuid.Nil {`,
+		`m.UID = schema.GenerateUID()`,
+		`if m.Amount.IsZero() {`,
+		`m.Amount = schema.GenerateAmount()`,
+		`if len(m.Meta) == 0 {`,
+		`m.Meta = lathe.JSON(schema.GenerateMeta())`,
+		`if m.Kind == "" {`,
+		`m.Kind = WidgetKind(schema.GenerateKind())`,
+		`if m.Seq == 0 {`,
+		`m.Seq = schema.GenerateSeq()`,
+		`if m.At.IsZero() {`,
+		`m.At = schema.GenerateAt()`,
+	} {
+		if !strings.Contains(src, want) {
+			t.Errorf("generated source lacks %q", want)
+		}
+	}
+	if strings.Contains(lineWith(src, `Column: "id"`), "HasDefault") {
+		t.Error("a DefaultFunc column must never be left out of INSERT (no HasDefault)")
+	}
+}
+
 func lineWith(src, needle string) string {
 	for _, l := range strings.Split(src, "\n") {
 		if strings.Contains(l, needle) {

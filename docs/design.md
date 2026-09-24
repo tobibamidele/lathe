@@ -74,13 +74,18 @@ database knows cannot be read back. Generated code fills a zero UUID with
 `uuid.New()`; `Create` returns a clear error for the remaining unreadable case
 (a database-generated non-auto primary key on MySQL).
 
-**`DefaultFunc` is a type-checked literal.** Every column constructor returns a
-generic `*ColumnBuilder[T]` where `T` is the column's Go type, so
+**`DefaultFunc` is a type-checked client-side default.** Every column constructor
+returns a generic `*ColumnBuilder[T]` where `T` is the column's Go type, so
 `DefaultFunc(fn)` only accepts `func() T` and a mismatched default is a compile
-error. `fn` runs once while the schema is declared and its value is baked as a
-server-side literal default (identical to `Default`), so generators must be
-stable -- a per-schema-load value, not a per-row one. Bytes columns (no literal
-form) reject `DefaultFunc` with a build error.
+error. `fn` must be a named, exported, package-level function; the builder
+records its fully qualified name (`runtime.FuncForPC`) in the snapshot instead
+of calling it. Generated code imports the schema package and calls the function
+per insert when the field still holds its zero value, so it can return a fresh
+value per row (the normal case for hand-rolled ID generators). Closures (`.funcN`)
+and method values (`-fm`) have no name the generated package could call and are
+rejected at schema load. A column holds either a server-side default or a
+DefaultFunc -- whichever was called last; `Validate` rejects a snapshot that
+carries both.
 
 **Relations are derived, batched and cycle-free.** They come from foreign keys, so
 the schema stays the single source of truth. Each is a `Relation[Source, Target]`

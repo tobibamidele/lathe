@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 
 	"github.com/tobibamidele/lathe/internal/loader"
@@ -15,8 +16,8 @@ import (
 )
 
 // Version is set at build time with -ldflags "-X .../internal/cli.Version=v1.2.3".
-var Version = "dev"
-
+// See version.go for how it combines with the go toolchain's embedded build
+// info; stderr stays separate for the migrate/driver errors below.
 const usage = `lathe - a schema-first ORM toolchain for Go
 
 Usage:
@@ -73,7 +74,11 @@ func (a *app) run(args []string) error {
 	case "migrate":
 		return a.migrateCmd(rest)
 	case "version", "--version", "-v":
-		fmt.Fprintln(a.out, "lathe", Version)
+		var info buildInfo
+		if bi, ok := debug.ReadBuildInfo(); ok {
+			info = runtimeBuildInfo{bi}
+		}
+		fmt.Fprintln(a.out, versionLine(Version, Revision, info))
 		return nil
 	case "help", "--help", "-h":
 		fmt.Fprint(a.out, usage)

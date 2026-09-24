@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"unicode"
 )
 
 var (
@@ -233,10 +234,31 @@ func validateColumn(t *TableDef, c *ColumnDef) []string {
 			errs = append(errs, "AutoIncrement columns cannot have a default")
 		}
 	}
+	if c.Default != nil && c.DefaultFunc != "" {
+		errs = append(errs, "cannot have both a Default and a DefaultFunc")
+	}
 	if d := c.Default; d != nil {
 		errs = append(errs, validateDefault(c, d)...)
 	}
+	if c.DefaultFunc != "" {
+		errs = append(errs, validateDefaultFunc(c.DefaultFunc)...)
+	}
 	return errs
+}
+
+// validateDefaultFunc checks the fully qualified name captured by
+// [ColumnBuilder.DefaultFunc] from a hand-edited snapshot: import path, a dot,
+// and an exported function name.
+func validateDefaultFunc(name string) []string {
+	i := strings.LastIndex(name, ".")
+	if i <= 0 || !strings.Contains(name[:i], "/") {
+		return []string{"DefaultFunc: expected a fully qualified name like \"example.com/schema.GenerateID\""}
+	}
+	leaf := name[i+1:]
+	if !identRE.MatchString(leaf) || !unicode.IsUpper(rune(leaf[0])) {
+		return []string{fmt.Sprintf("DefaultFunc: %s must be an exported function name", leaf)}
+	}
+	return nil
 }
 
 func validateDefault(c *ColumnDef, d *Default) []string {
