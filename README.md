@@ -222,6 +222,27 @@ client.Users.Exists(ctx, db.Users.Email.Eq(email))
 Fields left out by `Exclude` or `Select` keep their zero values. Passing a
 column of another table is an error, not silent misuse.
 
+For projections that hold *only* the requested values, use `Returning`: the
+query then returns a `[]lathe.Row`, and each `Row` is a `[]any` with the values
+in the exact order you listed them, `nil` for NULL. A column you did not ask
+for never appears at all, so an absent ID can't be mistaken for a `uuid.Nil` or
+an empty email for `""`.
+
+```go
+ids, err := client.Users.FindMany().
+    Where(db.Users.Active.Eq(true)).
+    Returning(db.Users.ID, db.Users.Email).   // row[0]=id, row[1]=email (nil if NULL)
+    All(ctx)                                  // []lathe.Row
+
+u, err := client.Users.FindFirst().
+    Where(db.Users.Email.Eq("ann@x.io")).
+    Returning(db.Users.ID, db.Users.Email, db.Users.Bio).
+    One(ctx)                                  // lathe.Row or lathe.ErrNotFound
+```
+
+`Returning` defines its own column list (any `Select` is ignored) and cannot be
+combined with `With`, because relation loading needs whole rows.
+
 ### Writing
 
 ```go
