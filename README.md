@@ -476,8 +476,13 @@ writing the schema by hand:
 lathe import --from migrations --dialect postgres
 # wrote schema/schema.go
 lathe generate
-lathe migrate diff init        # optional: capture a baseline snapshot
+lathe migrate snapshot         # start future diffs from the imported schema
 ```
+
+If the database already has those migrations applied, import only reconstructs
+the schema; it does not record the old files as applied. Use
+`migrate snapshot` so future diffs start from the current shape, and do not run
+`migrate up` against that database again.
 
 Migrations are replayed in file-name order, so the result is the schema as it
 exists *after* the last migration: a table created in `001_init.sql` and

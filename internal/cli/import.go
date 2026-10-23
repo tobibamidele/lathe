@@ -109,7 +109,7 @@ func (a *app) importCmd(args []string) error {
 	fmt.Fprintln(a.out, "\nNext steps:")
 	fmt.Fprintln(a.out, "  1. review "+filepath.ToSlash(rel))
 	fmt.Fprintln(a.out, "  2. lathe generate")
-	fmt.Fprintln(a.out, "  3. lathe migrate diff init   # optional: capture a baseline")
+	fmt.Fprintln(a.out, "  3. lathe migrate snapshot   # start future diffs from this schema")
 	return nil
 }
 
