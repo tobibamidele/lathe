@@ -27,6 +27,7 @@ Requires Go 1.22 or newer.
 - [Schema reference](#schema-reference)
 - [Querying](#querying)
 - [Migrations](#migrations)
+- [Importing existing migrations](#importing-existing-migrations)
 - [Drivers](#drivers)
 - [Money and decimals](#money-and-decimals)
 - [Limitations](#limitations)
@@ -465,6 +466,46 @@ reverse order. Data destroyed by an up migration (a dropped column or table)
 comes back as structure only, and the diff prints a warning for those changes:
 dropped tables and columns, narrowing type changes, `NULL` to `NOT NULL`.
 
+### Importing existing migrations
+
+`lathe import` builds a schema package from an existing directory of SQL
+migrations, so a project that already has a database can adopt lathe without
+writing the schema by hand:
+
+```sh
+lathe import --from migrations --dialect postgres
+# wrote schema/schema.go
+lathe generate
+lathe migrate diff init        # optional: capture a baseline snapshot
+```
+
+Migrations are replayed in file-name order, so the result is the schema as it
+exists *after* the last migration: a table created in `001_init.sql` and
+dropped in `019_cleanup.sql` is absent, and renames and later `ALTER TABLE`s
+win over earlier definitions. Down migrations (`.down.sql`, `_down.sql`,
+`-down.sql`, `.rollback.sql`, `.revert.sql`) are ignored, nested directories
+are scanned (Prisma/Drizzle layouts work), and `meta`/`node_modules`/hidden
+directories are skipped. Views, triggers, functions and extensions are ignored
+too: they do not change the tables lathe models.
+
+The importer understands the DDL migration tools emit: tables, columns with
+types/defaults/nullability, primary keys, unique constraints, foreign keys with
+actions, enums (including `CREATE TYPE` wrapped in a `DO $$ ... $$` exception
+handler), and plain indexes. Anything lathe cannot represent becomes a
+warning and is skipped, for example `CHECK` constraints, partial/expression/GIN
+indexes, arrays (imported as JSON), and `ON UPDATE CURRENT_TIMESTAMP`:
+
+```
+warning: 001_init.up.sql (statement 14): table "products" column "price": CHECK constraint is not supported by lathe; ignored
+warning: 014_add_product_tags.up.sql (statement 1): table "products" column "tags": array type; imported as json
+```
+
+Review the generated file before committing; it is ordinary lathe schema code
+and may need a primary key or a type tweak. Pass `--strict` to turn warnings
+into an error (nothing is written), `--dry-run` to print the schema instead of
+writing it, `--force` to replace an existing `schema/schema.go`, and `--schema`
+/ `--output` / `--migrations` to point at different directories.
+
 ### Renames
 
 A diff cannot tell a rename from a drop plus an add, and guessing loses data. Tell
@@ -568,6 +609,7 @@ runs.
 
 ```sh
 make test          # unit tests with the race detector, no database needed
+make e2e-import    # import SQL migrations, then generate, no database needed
 make e2e-sqlite    # whole toolchain against SQLite
 make e2e-postgres  # needs a server, see integration/run.sh
 make e2e-mysql
@@ -578,6 +620,11 @@ CRUD suite, evolves the schema over existing rows (add, rename, retype, index,
 drop and create tables), checks the data survived, reverts the migration,
 checks the old shape and data, applies it again and finally checks that the
 schema has no drift. CI runs it for all three databases.
+
+`integration/import.sh` replays a fixture history with renames, drops,
+enums and unsupported SQL, then runs `lathe generate` and asserts the final
+models. It leaves the generated schema, models and migrations in
+`/tmp/opencode/lathe-import-e2e/artifact`.
 
 `examples/showcase` is a runnable tour of the whole API against PostgreSQL. See
 [docs/design.md](docs/design.md) for how the pieces fit together.

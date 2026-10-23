@@ -25,6 +25,10 @@ Usage:
         Scaffold a schema package.
   lathe generate [--schema DIR]
         Generate the Go package (models, typed columns, client) from the schema.
+  lathe import --from DIR [--schema DIR] [--dialect DIALECT] [--strict]
+                [--dry-run] [--force]
+        Rebuild the schema package from a directory of SQL migrations, applied
+        in file-name order.
   lathe migrate diff [NAME] [--schema DIR] [--dry-run]
         Write a migration for the difference between the schema and the last
         snapshot, plus its down migration.
@@ -71,6 +75,8 @@ func (a *app) run(args []string) error {
 		return a.initCmd(rest)
 	case "generate":
 		return a.generateCmd(rest)
+	case "import":
+		return a.importCmd(rest)
 	case "migrate":
 		return a.migrateCmd(rest)
 	case "version", "--version", "-v":

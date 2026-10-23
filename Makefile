@@ -1,4 +1,4 @@
-.PHONY: build install test vet fmt-check version e2e e2e-sqlite e2e-postgres e2e-mysql clean
+.PHONY: build install test vet fmt-check version e2e e2e-import e2e-sqlite e2e-postgres e2e-mysql clean
 
 # Version and Revision are embedded into the binary and shown by `lathe version`.
 # VERSION falls back from the nearest tag to the commit; REVISION is the short
@@ -37,7 +37,11 @@ e2e-postgres:
 e2e-mysql:
 	./integration/run.sh mysql
 
-e2e: e2e-sqlite e2e-postgres e2e-mysql
+# No database needed: builds a module from SQL fixtures and imports it.
+e2e-import:
+	./integration/import.sh
+
+e2e: e2e-import e2e-sqlite e2e-postgres e2e-mysql
 
 clean:
 	rm -rf bin integration/db integration/migrations

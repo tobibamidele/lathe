@@ -19,6 +19,15 @@ jobs:
       - run: make test
       - run: make version | grep -Ev "lathe dev( |$)"
 
+  import:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - run: make e2e-import
+
   e2e:
     runs-on: ubuntu-latest
     strategy:
